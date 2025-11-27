@@ -1,0 +1,21 @@
+---
+namespace: local
+name: main
+version: 0.1.0
+readme: README.md
+
+authors:
+  - "Your Name <your.email@example.com>"
+
+description: Ansible collection local.main
+
+license:
+  - MIT
+
+tags:
+  - infrastructure
+  - automation
+
+repository: https://github.com/local/ansible-main
+
+dependencies: {}
