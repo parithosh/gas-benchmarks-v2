@@ -225,13 +225,16 @@
     path: "{{ workspace_root }}/{{ benchmark_source_dir }}/Makefile"
   register: makefile_stat
 
-- name: Prepare tools via Makefile (if exists)
+- name: Prepare tools via Makefile (if exists and not submodule)
   ansible.builtin.command:
     cmd: make prepare_tools
     chdir: "{{ workspace_root }}/{{ benchmark_source_dir }}"
   register: make_prepare_result
   changed_when: "'up to date' not in make_prepare_result.stdout"
-  when: makefile_stat.stat.exists
+  failed_when: false  # Don't fail if Makefile has issues
+  when:
+    - makefile_stat.stat.exists
+    - benchmark_source_dir != "gas-benchmarks"  # Skip for git submodule (builds Nethermind Kute, not needed)
 
 - name: Register validation results
   ansible.builtin.set_fact:
