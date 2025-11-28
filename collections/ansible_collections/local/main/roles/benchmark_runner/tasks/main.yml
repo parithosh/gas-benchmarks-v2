@@ -4,43 +4,39 @@
 
 - name: Execute benchmark for {{ client_name }}
   block:
-    - name: Generate images JSON for client
+    - name: Extract test path from first test (simplified for single path)
       ansible.builtin.set_fact:
-        client_images_json: "{{ {client_name: benchmark_images[client_name] | default('default')} | to_json }}"
+        primary_test_path: "{{ benchmark_test_paths[0].path | regex_replace('^' + benchmark_tests_root + '/', '') }}"
+        primary_genesis: "{{ benchmark_test_paths[0].genesis | default('') }}"
 
-    - name: Convert test paths to JSON
-      ansible.builtin.set_fact:
-        test_paths_json: "{{ benchmark_test_paths | to_json }}"
-
-    - name: Build run.sh command
+    - name: Build run.sh command (using legacy -t format)
       ansible.builtin.set_fact:
         run_command: >-
-          bash {{ benchmark_source_dir }}/run.sh
-          -T '{{ test_paths_json }}'
-          -c {{ client_name }}
+          bash run.sh
+          -t "{{ primary_test_path }}"
+          {{ '-g ' + primary_genesis if primary_genesis != '' else '' }}
+          -c "{{ client_name }}"
           -r {{ benchmark_runs }}
-          -i '{{ client_images_json }}'
-          {{ '-w ' + benchmark_warmup_file if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }}
-          {{ '-f ' + benchmark_filter if (benchmark_filter is defined and benchmark_filter != '') else '' }}
-          {{ '-n ' + benchmark_network if (benchmark_network is defined and benchmark_network != '') else '' }}
-          {{ '-B ' + benchmark_snapshot_root if (benchmark_snapshot_root is defined and benchmark_snapshot_root != '') else '' }}
+          {{ '-w "' + benchmark_warmup_file + '"' if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }}
+          {{ '-f "' + benchmark_filter + '"' if (benchmark_filter is defined and benchmark_filter != '') else '' }}
+          {{ '-n "' + benchmark_network + '"' if (benchmark_network is defined and benchmark_network != '') else '' }}
+          {{ '-B "' + benchmark_snapshot_root + '"' if (benchmark_snapshot_root is defined and benchmark_snapshot_root != '') else '' }}
           {{ '-R' if benchmark_restart_before_testing | default(false) else '' }}
           {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }}
           {{ '-o ' + benchmark_opcodes_warmup_count | string if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count > 0) else '' }}
-          {{ '-d' if benchmark_debug | default(false) else '' }}
 
     - name: Display run command
       ansible.builtin.debug:
         msg: "Executing: {{ run_command }}"
-      when: benchmark_debug | default(false)
 
     - name: Execute benchmark run
       ansible.builtin.shell: "{{ run_command }}"
       args:
-        chdir: "{{ workspace_root }}"
+        chdir: "{{ workspace_root }}/{{ benchmark_source_dir }}"
         executable: /bin/bash
       environment:
         JWT_PATH: "{{ benchmark_jwt_path }}"
+        PYTHONPATH: "{{ workspace_root }}/{{ benchmark_source_dir }}"
       register: run_result
       changed_when: true
 

@@ -12,7 +12,6 @@ benchmark_filter: ""
 benchmark_restart_before_testing: false
 benchmark_skip_forkchoice: false
 benchmark_opcodes_warmup_count: 1
-benchmark_debug: false
 
 # Network and snapshot configuration
 benchmark_network: ""
