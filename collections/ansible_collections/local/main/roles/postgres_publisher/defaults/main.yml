@@ -2,6 +2,9 @@
 # Role: postgres_publisher
 # Purpose: Default variables for PostgreSQL ingestion
 
+# Path configuration (inherited from group_vars, can be overridden)
+benchmark_source_dir: "gas-benchmarks"
+
 # PostgreSQL configuration
 postgres_host: ""
 postgres_port: 5432

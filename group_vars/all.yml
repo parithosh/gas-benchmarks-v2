@@ -1,4 +1,10 @@
 ---
+# Path Configuration
+# Source directory containing benchmark scripts (run.sh, setup_node.py, etc.)
+benchmark_source_dir: "gas-benchmarks"
+# Test artifacts directory (can be same as source or separate)
+benchmark_tests_root: "gas-benchmarks"
+
 # Default benchmark configuration
 benchmark_clients:
   - nethermind
@@ -6,7 +12,7 @@ benchmark_clients:
   - reth
 
 benchmark_test_paths:
-  - path: "gas-benchmarks/eest_tests"
+  - path: "{{ benchmark_tests_root }}/eest_tests"
     genesis: "zkevmgenesis.json"
 
 benchmark_jwt_path: "/tmp/jwtsecret"

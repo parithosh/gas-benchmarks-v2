@@ -2,6 +2,10 @@
 # Role: benchmark_validator
 # Purpose: Default variables for benchmark validation
 
+# Path configuration (inherited from group_vars, can be overridden)
+benchmark_source_dir: "gas-benchmarks"
+benchmark_tests_root: "gas-benchmarks"
+
 # Minimum required versions
 min_docker_version: "20.10"
 min_docker_compose_version: "2.0"

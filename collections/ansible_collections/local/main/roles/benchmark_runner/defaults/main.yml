@@ -2,6 +2,10 @@
 # Role: benchmark_runner
 # Purpose: Default variables for benchmark execution
 
+# Path configuration (inherited from group_vars, can be overridden)
+benchmark_source_dir: "gas-benchmarks"
+benchmark_tests_root: "gas-benchmarks"
+
 # Run configuration
 benchmark_runs: 1
 benchmark_filter: ""

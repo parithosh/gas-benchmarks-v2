@@ -88,7 +88,7 @@
 
         - name: Ingest results to PostgreSQL
           ansible.builtin.shell: |
-            python3 src/fill_postgres_db.py \
+            python3 {{ benchmark_source_dir }}/fill_postgres_db.py \
               --db-host "{{ postgres_host }}" \
               --db-port "{{ postgres_port }}" \
               --db-user "{{ postgres_user }}" \

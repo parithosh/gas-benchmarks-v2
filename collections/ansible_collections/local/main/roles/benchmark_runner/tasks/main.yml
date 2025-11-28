@@ -15,7 +15,7 @@
     - name: Build run.sh command
       ansible.builtin.set_fact:
         run_command: >-
-          bash src/run.sh
+          bash {{ benchmark_source_dir }}/run.sh
           -T '{{ test_paths_json }}'
           -c {{ client_name }}
           -r {{ benchmark_runs }}

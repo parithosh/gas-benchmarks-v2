@@ -90,51 +90,51 @@
     msg: "Insufficient disk space ({{ disk_space_gb }}G available, minimum 5G required)"
   when: disk_space_gb | int < 5
 
-- name: Validate src/run.sh exists and is executable
+- name: Validate run.sh exists and is executable
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/run.sh"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/run.sh"
   register: run_sh_stat
 
-- name: Fail if src/run.sh not found
+- name: Fail if run.sh not found
   ansible.builtin.fail:
-    msg: "src/run.sh not found (did you run file reorganization?)"
+    msg: "{{ benchmark_source_dir }}/run.sh not found (check benchmark_source_dir variable)"
   when: not run_sh_stat.stat.exists
 
-- name: Fail if src/run.sh is not executable
+- name: Fail if run.sh is not executable
   ansible.builtin.fail:
-    msg: "src/run.sh exists but is not executable"
+    msg: "{{ benchmark_source_dir }}/run.sh exists but is not executable"
   when: run_sh_stat.stat.exists and not run_sh_stat.stat.executable
 
-- name: Validate src/setup_node.py exists
+- name: Validate setup_node.py exists
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/setup_node.py"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/setup_node.py"
   register: setup_node_stat
 
-- name: Fail if src/setup_node.py not found
+- name: Fail if setup_node.py not found
   ansible.builtin.fail:
-    msg: "src/setup_node.py not found"
+    msg: "{{ benchmark_source_dir }}/setup_node.py not found"
   when: not setup_node_stat.stat.exists
 
-- name: Validate src/requirements.txt exists
+- name: Validate requirements.txt exists
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/requirements.txt"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/requirements.txt"
   register: requirements_stat
 
-- name: Fail if src/requirements.txt not found
+- name: Fail if requirements.txt not found
   ansible.builtin.fail:
-    msg: "src/requirements.txt not found"
+    msg: "{{ benchmark_source_dir }}/requirements.txt not found"
   when: not requirements_stat.stat.exists
 
 - name: Validate client directories exist
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/scripts/{{ item }}"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ item }}"
   register: client_dir_stats
   loop: "{{ benchmark_clients }}"
   failed_when: not client_dir_stats.stat.exists
 
 - name: Fail if client directory not found
   ansible.builtin.fail:
-    msg: "Client directory not found: src/scripts/{{ item.item }}"
+    msg: "Client directory not found: {{ benchmark_source_dir }}/scripts/{{ item.item }}"
   when: not item.stat.exists
   loop: "{{ client_dir_stats.results }}"
   loop_control:
@@ -142,7 +142,7 @@
 
 - name: Validate client docker-compose.yaml exists
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/scripts/{{ item }}/docker-compose.yaml"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ item }}/docker-compose.yaml"
   register: docker_compose_stats
   loop: "{{ benchmark_clients }}"
 
@@ -198,7 +198,7 @@
 
 - name: Validate genesis files exist for each client
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/scripts/genesisfiles/{{ item[0] }}/{{ item[1].genesis }}"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/genesisfiles/{{ item[0] }}/{{ item[1].genesis }}"
   register: genesis_file_stats
   loop: "{{ benchmark_clients_normalized | product(benchmark_test_paths | selectattr('genesis', 'defined') | list) | list }}"
   loop_control:
@@ -215,20 +215,20 @@
 
 - name: Install Python dependencies
   ansible.builtin.pip:
-    requirements: "{{ workspace_root }}/src/requirements.txt"
+    requirements: "{{ workspace_root }}/{{ benchmark_source_dir }}/requirements.txt"
     state: present
     extra_args: --user
   register: pip_install_result
 
-- name: Check if Makefile exists in src/
+- name: Check if Makefile exists in source directory
   ansible.builtin.stat:
-    path: "{{ workspace_root }}/src/Makefile"
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/Makefile"
   register: makefile_stat
 
 - name: Prepare tools via Makefile (if exists)
   ansible.builtin.command:
     cmd: make prepare_tools
-    chdir: "{{ workspace_root }}/src"
+    chdir: "{{ workspace_root }}/{{ benchmark_source_dir }}"
   register: make_prepare_result
   changed_when: "'up to date' not in make_prepare_result.stdout"
   when: makefile_stat.stat.exists
