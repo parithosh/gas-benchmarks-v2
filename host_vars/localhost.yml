@@ -1,5 +1,5 @@
 ---
-# Default benchmark configuration
+# Benchmark configuration for localhost
 benchmark_clients:
   - nethermind
   - geth
@@ -9,7 +9,6 @@ benchmark_test_paths:
   - path: "gas-benchmarks/eest_tests"
     genesis: "zkevmgenesis.json"
 
-benchmark_jwt_path: "/tmp/jwtsecret"
 benchmark_runs: 1
 benchmark_warmup_file: ""
 benchmark_filter: ""
@@ -23,7 +22,7 @@ benchmark_network: ""
 benchmark_snapshot_root: ""
 
 # Docker image configuration
-benchmark_images: {}  # Empty dict means use defaults from images.yaml
+benchmark_images: {}
 
 # Results configuration
 benchmark_results_dir: "results"

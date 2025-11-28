@@ -71,24 +71,28 @@
 
 - name: Check available disk space
   ansible.builtin.shell: |
-    df -BG {{ playbook_dir }} | tail -1 | awk '{print $4}' | sed 's/G//'
-  register: disk_space_result
+    df -k {{ workspace_root }} | tail -1 | awk '{print $4}'
+  register: disk_space_kb_result
   changed_when: false
   failed_when: false
 
+- name: Convert disk space to GB
+  ansible.builtin.set_fact:
+    disk_space_gb: "{{ (disk_space_kb_result.stdout | int / 1024 / 1024) | round(1, 'floor') | int }}"
+
 - name: Warn if disk space is low
   ansible.builtin.debug:
-    msg: "WARNING: Low disk space detected ({{ disk_space_result.stdout }}G available). Benchmarks may require 10G+ for results and logs."
-  when: disk_space_result.stdout | int < 10
+    msg: "WARNING: Low disk space detected ({{ disk_space_gb }}G available). Benchmarks may require 10G+ for results and logs."
+  when: disk_space_gb | int < 10
 
 - name: Fail if disk space is critically low
   ansible.builtin.fail:
-    msg: "Insufficient disk space ({{ disk_space_result.stdout }}G available, minimum 5G required)"
-  when: disk_space_result.stdout | int < 5
+    msg: "Insufficient disk space ({{ disk_space_gb }}G available, minimum 5G required)"
+  when: disk_space_gb | int < 5
 
 - name: Validate src/run.sh exists and is executable
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/run.sh"
+    path: "{{ workspace_root }}/src/run.sh"
   register: run_sh_stat
 
 - name: Fail if src/run.sh not found
@@ -103,7 +107,7 @@
 
 - name: Validate src/setup_node.py exists
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/setup_node.py"
+    path: "{{ workspace_root }}/src/setup_node.py"
   register: setup_node_stat
 
 - name: Fail if src/setup_node.py not found
@@ -113,7 +117,7 @@
 
 - name: Validate src/requirements.txt exists
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/requirements.txt"
+    path: "{{ workspace_root }}/src/requirements.txt"
   register: requirements_stat
 
 - name: Fail if src/requirements.txt not found
@@ -123,7 +127,7 @@
 
 - name: Validate client directories exist
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/scripts/{{ item }}"
+    path: "{{ workspace_root }}/src/scripts/{{ item }}"
   register: client_dir_stats
   loop: "{{ benchmark_clients }}"
   failed_when: not client_dir_stats.stat.exists
@@ -138,7 +142,7 @@
 
 - name: Validate client docker-compose.yaml exists
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/scripts/{{ item }}/docker-compose.yaml"
+    path: "{{ workspace_root }}/src/scripts/{{ item }}/docker-compose.yaml"
   register: docker_compose_stats
   loop: "{{ benchmark_clients }}"
 
@@ -152,7 +156,7 @@
 
 - name: Validate test paths exist
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/{{ item.path }}"
+    path: "{{ workspace_root }}/{{ item.path }}"
   register: test_path_stats
   loop: "{{ benchmark_test_paths }}"
   loop_control:
@@ -168,7 +172,7 @@
 
 - name: Validate warmup file exists (if specified)
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/{{ benchmark_warmup_file }}"
+    path: "{{ workspace_root }}/{{ benchmark_warmup_file }}"
   register: warmup_file_stat
   when: benchmark_warmup_file is defined and benchmark_warmup_file != ""
 
@@ -180,53 +184,51 @@
     - benchmark_warmup_file != ""
     - not warmup_file_stat.stat.exists
 
-- name: Determine genesis file paths for each client and test
-  ansible.builtin.set_fact:
-    genesis_validations: []
+- name: Normalize benchmark_clients to ensure it's a list  
+  block:
+    - name: Convert Python list string to JSON and parse
+      ansible.builtin.set_fact:
+        benchmark_clients_normalized: "{{ benchmark_clients | replace(\"'\", '\"') | from_json }}"
+      when: benchmark_clients is string
+    
+    - name: Use benchmark_clients as-is if it's already a list
+      ansible.builtin.set_fact:
+        benchmark_clients_normalized: "{{ benchmark_clients }}"
+      when: benchmark_clients is not string
 
-- name: Build genesis file validation list
-  ansible.builtin.set_fact:
-    genesis_validations: "{{ genesis_validations + [{'client': item.0, 'test': item.1, 'path': playbook_dir + '/src/scripts/genesisfiles/' + item.0 + '/' + item.1.genesis}] }}"
-  loop: "{{ benchmark_clients | product(benchmark_test_paths | selectattr('genesis', 'defined')) | list }}"
-  loop_control:
-    label: "{{ item.0 }} - {{ item.1.path }}"
-  when: item.1.genesis is defined
-
-- name: Validate genesis files exist
+- name: Validate genesis files exist for each client
   ansible.builtin.stat:
-    path: "{{ item.path }}"
+    path: "{{ workspace_root }}/src/scripts/genesisfiles/{{ item[0] }}/{{ item[1].genesis }}"
   register: genesis_file_stats
-  loop: "{{ genesis_validations }}"
+  loop: "{{ benchmark_clients_normalized | product(benchmark_test_paths | selectattr('genesis', 'defined') | list) | list }}"
   loop_control:
-    label: "{{ item.client }}/{{ item.test.genesis }}"
-  when: genesis_validations | length > 0
+    label: "{{ item[0] }}/{{ item[1].genesis }}"
+  when: item[1].genesis is defined
 
 - name: Fail if genesis file not found
   ansible.builtin.fail:
-    msg: "Genesis file not found: {{ item.item.test.genesis }} for client {{ item.item.client }}"
-  when:
-    - genesis_validations | length > 0
-    - not item.stat.exists
+    msg: "Genesis file not found: {{ item.item[1].genesis }} for client {{ item.item[0] }}"
+  when: not item.stat.exists
   loop: "{{ genesis_file_stats.results }}"
   loop_control:
-    label: "{{ item.item.client }}/{{ item.item.test.genesis }}"
+    label: "{{ item.item[0] }}/{{ item.item[1].genesis }}"
 
 - name: Install Python dependencies
   ansible.builtin.pip:
-    requirements: "{{ playbook_dir }}/src/requirements.txt"
+    requirements: "{{ workspace_root }}/src/requirements.txt"
     state: present
     extra_args: --user
   register: pip_install_result
 
 - name: Check if Makefile exists in src/
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/src/Makefile"
+    path: "{{ workspace_root }}/src/Makefile"
   register: makefile_stat
 
 - name: Prepare tools via Makefile (if exists)
   ansible.builtin.command:
     cmd: make prepare_tools
-    chdir: "{{ playbook_dir }}/src"
+    chdir: "{{ workspace_root }}/src"
   register: make_prepare_result
   changed_when: "'up to date' not in make_prepare_result.stdout"
   when: makefile_stat.stat.exists
@@ -240,4 +242,4 @@
       clients_validated: "{{ benchmark_clients }}"
       test_paths_validated: "{{ benchmark_test_paths | map(attribute='path') | list }}"
       warmup_file_validated: "{{ (benchmark_warmup_file is defined and benchmark_warmup_file != '' and warmup_file_stat.stat.exists) | default(false) }}"
-      genesis_files_validated: "{{ genesis_validations | map(attribute='path') | list }}"
+      genesis_files_validated: "{{ genesis_file_stats.results | default([]) | map(attribute='stat.path') | list }}"

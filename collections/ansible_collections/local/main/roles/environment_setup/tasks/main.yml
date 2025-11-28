@@ -38,27 +38,34 @@
   ansible.builtin.stat:
     path: "{{ benchmark_lock_file }}"
   register: lock_file_stat
-  when: lock_process_check.stdout | default('') == 'not_running'
+  when: 
+    - lock_file_stat.stat.exists | default(false)
+    - lock_process_check.stdout | default('') == 'not_running'
 
 - name: Fail if valid lock file exists (concurrent execution prevented)
   ansible.builtin.fail:
-    msg: "Benchmark execution already in progress (lock file: {{ benchmark_lock_file }}, PID: {{ lock_pid }})"
+    msg: "Benchmark execution already in progress (lock file: {{ benchmark_lock_file }}, PID: {{ lock_pid | default('unknown') }})"
   when:
-    - lock_file_stat.stat.exists
-    - lock_process_check.stdout | default('running') == 'running'
+    - lock_file_stat.stat.exists | default(false)
+    - (lock_process_check.stdout | default('running')) == 'running'
+
+- name: Get current process PID
+  ansible.builtin.shell: echo $$
+  register: ansible_pid_output
+  changed_when: false
 
 - name: Create lock file
   ansible.builtin.copy:
     content: |
       timestamp: {{ ansible_date_time.iso8601 }}
-      pid: {{ ansible_pid }}
+      pid: {{ ansible_pid_output.stdout | int }}
       playbook_run_id: {{ ansible_run_tags | join(',') | default('no_tags') }}
     dest: "{{ benchmark_lock_file }}"
     mode: '0644'
 
 - name: Clean previous results directories
   ansible.builtin.file:
-    path: "{{ playbook_dir }}/{{ item }}"
+    path: "{{ workspace_root }}/{{ item }}"
     state: absent
   loop:
     - "{{ benchmark_results_dir }}"
@@ -66,7 +73,7 @@
 
 - name: Create required directories
   ansible.builtin.file:
-    path: "{{ playbook_dir }}/{{ item }}"
+    path: "{{ workspace_root }}/{{ item }}"
     state: directory
     mode: '0755'
   loop:
@@ -84,7 +91,7 @@
     set -e
 
     # Find all overlay mounts under the overlay runtime directory
-    overlay_runtime_path="{{ playbook_dir }}/{{ benchmark_overlay_tmp_root }}"
+    overlay_runtime_path="{{ workspace_root }}/{{ benchmark_overlay_tmp_root }}"
 
     if [ -d "$overlay_runtime_path" ]; then
       # Find and unmount all overlay filesystems

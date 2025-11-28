@@ -56,3 +56,5 @@ Thumbs.db
 *.temp
 *.bak
 inventory/hosts.yml
+.history/*
+gas-benchmarks/*

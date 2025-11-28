@@ -3,9 +3,14 @@
   hosts: localhost
   gather_facts: yes
 
+  vars_files:
+    - "{{ workspace_root }}/group_vars/all.yml"
+
   vars:
     client_failures: []
     playbook_start_time: "{{ ansible_date_time.epoch }}"
+    # Compute workspace root from playbook directory (5 levels up from playbooks/)
+    workspace_root: "{{ playbook_dir }}/../../../../.."
 
   tasks:
     - name: Record playbook start time
@@ -31,7 +36,7 @@
           ansible.builtin.include_role:
             name: benchmark_runner
           vars:
-            current_client: "{{ item }}"
+            client_name: "{{ item }}"
           loop: "{{ benchmark_clients }}"
           loop_control:
             loop_var: item

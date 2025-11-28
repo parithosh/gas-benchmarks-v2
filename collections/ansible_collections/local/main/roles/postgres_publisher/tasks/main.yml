@@ -25,7 +25,7 @@
 
     - name: Check if results directory exists
       ansible.builtin.stat:
-        path: "{{ playbook_dir }}/{{ benchmark_results_dir }}"
+        path: "{{ workspace_root }}/{{ benchmark_results_dir }}"
       register: results_dir_stat
 
     - name: Skip ingestion if results directory does not exist
@@ -35,7 +35,7 @@
 
     - name: Find CSV files in results directory
       ansible.builtin.find:
-        paths: "{{ playbook_dir }}/{{ benchmark_results_dir }}"
+        paths: "{{ workspace_root }}/{{ benchmark_results_dir }}"
         patterns: "*.csv"
       register: csv_files
       when: results_dir_stat.stat.exists
@@ -97,7 +97,7 @@
               --db-password "{{ postgres_password }}" \
               --reports-dir "{{ benchmark_results_dir }}"
           args:
-            chdir: "{{ playbook_dir }}"
+            chdir: "{{ workspace_root }}"
             executable: /bin/bash
           register: ingestion_result
           no_log: true

@@ -37,7 +37,7 @@
     - name: Execute benchmark run
       ansible.builtin.shell: "{{ run_command }}"
       args:
-        chdir: "{{ playbook_dir }}"
+        chdir: "{{ workspace_root }}"
         executable: /bin/bash
       environment:
         JWT_PATH: "{{ benchmark_jwt_path }}"
@@ -81,7 +81,7 @@
     - name: Collect Docker logs for client
       ansible.builtin.shell: |
         set -e
-        log_dir="{{ playbook_dir }}/{{ benchmark_logs_dir }}/{{ client_name }}"
+        log_dir="{{ workspace_root }}/{{ benchmark_logs_dir }}/{{ client_name }}"
         mkdir -p "$log_dir"
 
         # Get list of containers for this client
