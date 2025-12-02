@@ -64,6 +64,18 @@ init-submodule:
 		echo "✓ Submodule already initialized"; \
 	fi
 
+## update-submodule: Update submodule to specific branch (usage: make update-submodule BRANCH=branchname [SUBMODULE_PATH=gas-benchmarks])
+update-submodule:
+	@if [ -z "$(BRANCH)" ]; then \
+		echo "Error: BRANCH is required. Usage: make update-submodule BRANCH=branchname [SUBMODULE_PATH=gas-benchmarks]"; \
+		exit 1; \
+	fi
+	@SUBMODULE_VAR=$(if $(SUBMODULE_PATH),$(SUBMODULE_PATH),gas-benchmarks); \
+	echo "==> Updating submodule $$SUBMODULE_VAR to branch $(BRANCH)..."; \
+	git config submodule.$$SUBMODULE_VAR.branch $(BRANCH) && \
+	git submodule update --remote $$SUBMODULE_VAR && \
+	echo "✓ Submodule $$SUBMODULE_VAR updated to branch $(BRANCH)"
+
 ## prepare_tools: Prepare benchmark tools
 prepare_tools:
 	@echo "==> Checking Docker..."
