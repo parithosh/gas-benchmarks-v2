@@ -31,7 +31,18 @@
     dest: "{{ workspace_root }}/{{ benchmark_source_dir }}"
     version: main
     update: yes
+    force: yes
   when: gas_benchmarks_stat.stat.exists
+
+- name: Pull LFS files for gas-benchmarks
+  ansible.builtin.shell: |
+    git lfs install
+    git lfs pull
+  args:
+    chdir: "{{ workspace_root }}/{{ benchmark_source_dir }}"
+    executable: /bin/bash
+  register: lfs_pull_result
+  changed_when: "'Downloading' in lfs_pull_result.stdout or 'Filtering' in lfs_pull_result.stdout"
 
 - name: Check for existing lock file
   ansible.builtin.stat:

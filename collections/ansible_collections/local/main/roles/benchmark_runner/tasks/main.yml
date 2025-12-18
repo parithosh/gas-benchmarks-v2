@@ -183,3 +183,65 @@
           - Results: {{ 'copied' if results_sync_result.changed else 'no changes' }}
           - Reports: {{ 'copied' if reports_sync_result.changed else 'no changes' }}
           - Logs: {{ 'copied' if logs_sync_result.changed else 'no changes' }}
+
+    - name: Fetch artifacts to local machine (remote execution only)
+      when: inventory_hostname != 'localhost' and inventory_hostname != '127.0.0.1'
+      block:
+        - name: Ensure local results directory exists
+          ansible.builtin.file:
+            path: "{{ local_artifacts_dir }}/results"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+
+        - name: Ensure local reports directory exists
+          ansible.builtin.file:
+            path: "{{ local_artifacts_dir }}/reports"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+
+        - name: Ensure local logs directory exists
+          ansible.builtin.file:
+            path: "{{ local_artifacts_dir }}/logs"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+
+        - name: Fetch results from remote to local
+          ansible.posix.synchronize:
+            src: "{{ workspace_root }}/results/"
+            dest: "{{ local_artifacts_dir }}/results/"
+            mode: pull
+            recursive: yes
+          delegate_to: localhost
+          register: fetch_results
+          failed_when: false
+
+        - name: Fetch reports from remote to local
+          ansible.posix.synchronize:
+            src: "{{ workspace_root }}/reports/"
+            dest: "{{ local_artifacts_dir }}/reports/"
+            mode: pull
+            recursive: yes
+          delegate_to: localhost
+          register: fetch_reports
+          failed_when: false
+
+        - name: Fetch logs from remote to local
+          ansible.posix.synchronize:
+            src: "{{ workspace_root }}/logs/"
+            dest: "{{ local_artifacts_dir }}/logs/"
+            mode: pull
+            recursive: yes
+          delegate_to: localhost
+          register: fetch_logs
+          failed_when: false
+
+        - name: Log remote artifact fetch summary
+          ansible.builtin.debug:
+            msg: |
+              Remote artifacts fetched to {{ local_artifacts_dir }}/:
+              - Results: {{ 'fetched' if fetch_results.changed else 'no changes' }}
+              - Reports: {{ 'fetched' if fetch_reports.changed else 'no changes' }}
+              - Logs: {{ 'fetched' if fetch_logs.changed else 'no changes' }}
