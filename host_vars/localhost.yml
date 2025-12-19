@@ -22,7 +22,16 @@ benchmark_network: ""
 benchmark_snapshot_root: ""
 
 # Docker image configuration
-benchmark_images: {}
+# "default" means use image from images.yaml, or specify custom image
+# Example override: {"nethermind": "ethpandaops/nethermind:1.25.0"}
+benchmark_images:
+  nethermind: "default"
+  geth: "default"
+  reth: "default"
+  erigon: "default"
+  besu: "default"
+  nimbus: "default"
+  ethrex: "default"
 
 # Results configuration
 benchmark_results_dir: "results"
