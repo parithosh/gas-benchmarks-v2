@@ -34,6 +34,27 @@
     force: yes
   when: gas_benchmarks_stat.stat.exists
 
+- name: Install git-lfs package (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: git-lfs
+    state: present
+    update_cache: yes
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install git-lfs package (RedHat/CentOS)
+  ansible.builtin.yum:
+    name: git-lfs
+    state: present
+  become: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Install git-lfs package (macOS)
+  community.general.homebrew:
+    name: git-lfs
+    state: present
+  when: ansible_os_family == "Darwin"
+
 - name: Pull LFS files for gas-benchmarks
   ansible.builtin.shell: |
     git lfs install

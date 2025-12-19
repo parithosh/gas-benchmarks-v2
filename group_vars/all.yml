@@ -28,11 +28,24 @@ benchmark_network: ""
 benchmark_snapshot_root: ""
 
 # Docker image configuration
-benchmark_images: {}  # Empty dict means use defaults from images.yaml
+# "default" means use image from images.yaml, or specify custom image
+# Example override: {"nethermind": "ethpandaops/nethermind:1.25.0"}
+benchmark_images:
+  nethermind: "default"
+  geth: "default"
+  reth: "default"
+  erigon: "default"
+  besu: "default"
+  nimbus: "default"
+  ethrex: "default"
 
 # Results configuration
 benchmark_results_dir: "results"
 benchmark_reports_dir: "reports"
+
+# Local artifacts directory (where to fetch results from remote hosts)
+# Defaults to project root (inventory directory)
+local_artifacts_dir: "{{ inventory_dir | dirname }}"
 
 # PostgreSQL configuration (optional, used with --tags postgres)
 # These can be set via:

@@ -6,6 +6,10 @@
   ansible.builtin.debug:
     msg: "========== Benchmark Execution Phase: {{ client_name }} =========="
 
+- name: Log benchmark images configuration
+  ansible.builtin.debug:
+    msg: "benchmark_images: {{ benchmark_images | to_json }}"
+
 - name: Clean up stale genesis files from /tmp
   ansible.builtin.file:
     path: "{{ item }}"
@@ -36,6 +40,7 @@
           {{ '-R' if benchmark_restart_before_testing | default(false) else '' }}
           {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }}
           {{ '-o ' + benchmark_opcodes_warmup_count | string if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count > 0) else '' }}
+          {{ "-i '" + (benchmark_images | to_json) + "'" if (benchmark_images | default({}) | length > 0) else '' }}
 
     - name: Log benchmark command construction
       ansible.builtin.debug:

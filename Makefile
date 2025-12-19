@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
-.PHONY: help install validate test clean check-deps new-role new-playbook
+.PHONY: help install validate test clean check-deps new-role new-playbook linux-preinstall
 
 # Detect platform
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
@@ -36,6 +36,21 @@ help:
 	@echo "  new-playbook  - Create new playbook (usage: make new-playbook NAME=playbookname)"
 	@echo "  clean         - Remove virtual environment and caches"
 	@echo "  check-deps    - Verify all required dependencies are installed"
+	@echo "  linux-preinstall - Install prerequisites on Linux (curl, uv, ansible)"
+
+## linux-preinstall: Install prerequisites on Linux (curl, uv, ansible)
+linux-preinstall:
+	@if [ "$(PLATFORM)" != "linux" ]; then \
+		echo "Error: This target is only for Linux systems"; \
+		exit 1; \
+	fi
+	@echo "==> Installing curl..."
+	@command -v curl >/dev/null || (sudo apt-get update && sudo apt-get install -y curl)
+	@echo "==> Installing uv..."
+	@command -v uv >/dev/null || (curl -LsSf https://astral.sh/uv/install.sh | sh)
+	@echo "==> Installing ansible..."
+	@command -v ansible >/dev/null || (sudo apt-get update && sudo apt-get install -y ansible)
+	@echo "✓ Prerequisites installed!"
 
 ## install: Set up Python environment
 install:
