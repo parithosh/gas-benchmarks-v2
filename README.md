@@ -223,6 +223,51 @@ User Command → Makefile → Ansible Playbook → Ansible Roles → Docker Clie
                           Results (CSV/HTML) + PostgreSQL (optional)
 ```
 
+**Five-Phase Execution Architecture**:
+
+```mermaid
+flowchart TD
+    subgraph Phase1["Phase 1: Environment Setup"]
+        A1[Create directories] --> A2[Manage lock file]
+        A2 --> A3[Initialize submodule]
+    end
+
+    subgraph Phase2["Phase 2: Validation"]
+        B1[Check Docker/Python/jq] --> B2[Verify scripts exist]
+        B2 --> B3[Test network connectivity]
+        B3 --> B4[Install dependencies]
+    end
+
+    subgraph Phase3["Phase 3: Benchmark Execution"]
+        C1[Deploy client container] --> C2[Run warmup tests]
+        C2 --> C3[Execute benchmark tests]
+        C3 --> C4[Collect results & logs]
+        C4 --> C5{More clients?}
+        C5 -->|Yes| C1
+        C5 -->|No| D1
+    end
+
+    subgraph Phase4["Phase 4: PostgreSQL (Optional)"]
+        D1[Parse CSV results] --> D2[Connect to database]
+        D2 --> D3[Insert metrics]
+    end
+
+    subgraph Phase5["Phase 5: Cleanup"]
+        E1[Remove lock file] --> E2[Unmount overlays]
+    end
+
+    Phase1 --> Phase2
+    Phase2 --> Phase3
+    Phase3 --> Phase4
+    Phase4 --> Phase5
+
+    style Phase1 fill:#e1f5fe
+    style Phase2 fill:#fff3e0
+    style Phase3 fill:#e8f5e9
+    style Phase4 fill:#fce4ec
+    style Phase5 fill:#f3e5f5
+```
+
 **Component Responsibilities**:
 
 1. **Makefile**: Entry points for setup (`install`, `init-submodule`, `update-submodule`, `prepare_tools`, `clean`)
@@ -485,15 +530,75 @@ If your filter pattern doesn't match any tests, the benchmark will complete with
 
 **Result Formats**: CSV (raw data) and HTML (human-readable summary).
 
+#### Understanding the Metrics
+
+| Metric | Unit | Description |
+|--------|------|-------------|
+| **MGas/s** | Mega gas per second | Gas throughput - higher is better. Measures how much gas the client can process per second. |
+| **p50** | MGas/s | Median performance (50th percentile) - typical performance under normal conditions |
+| **p95** | MGas/s | 95th percentile - performance that 95% of runs achieve or exceed |
+| **p99** | MGas/s | 99th percentile - worst-case performance excluding outliers |
+| **Max** | MGas/s | Best observed performance |
+| **Min** | MGas/s | Worst observed performance |
+| **N** | Count | Number of benchmark runs |
+| **FCU time** | Milliseconds | Fork Choice Update time - time to process `engine_forkchoiceUpdatedV*` call |
+| **NP time** | Milliseconds | New Payload time - time to process `engine_newPayloadV*` call |
+| **Duration** | Milliseconds | Total test execution time |
+
+#### What Makes Good Performance?
+
+**MGas/s Interpretation**:
+- **Higher is better**: More gas processed per second = faster execution
+- **Typical ranges**: 50-500 MGas/s depending on operation type
+- **Precompiles**: Generally faster (100-500 MGas/s)
+- **Complex opcodes**: Generally slower (10-100 MGas/s)
+
+**Percentile Interpretation**:
+- **Consistent performance**: p50, p95, p99 values are close together
+- **High variance**: Large gap between p50 and p99 indicates inconsistent performance
+- **Outliers**: If Min is much lower than p99, there may be occasional slowdowns
+
+**Comparing Clients**:
+1. Compare p50 values for typical performance
+2. Compare p99 values for worst-case guarantees
+3. Look at FCU and NP times for Engine API efficiency
+4. Consider consistency (gap between p50 and p99)
+
+#### Statistical Significance
+
+For reliable comparisons:
+- **Minimum runs**: 3 runs (set `benchmark_runs: 3`)
+- **Recommended runs**: 5-10 runs for statistically significant results
+- **Production validation**: 20+ runs recommended
+
+**Example Analysis**:
+```
+Client A: p50=120 MGas/s, p99=95 MGas/s  (consistent)
+Client B: p50=150 MGas/s, p99=45 MGas/s  (high variance)
+
+→ Client A may be preferred for predictable workloads
+→ Client B has higher peak but less reliable
+```
+
 #### CSV Results
 
 **Location**: `gas-benchmarks/reports/output_{client}.csv`
 
+**Example CSV Content**:
+```csv
+Title,Max (MGas/s),p50 (MGas/s),p95 (MGas/s),p99 (MGas/s),Min (MGas/s),N,Description,Start Time,End Time,Duration (ms),FCU time (ms),NP time (ms)
+bn128_add_G1+G1,245.3,238.1,220.5,215.2,210.0,5,BN128 point addition,2025-01-15T10:00:00,2025-01-15T10:00:05,5000,12.5,45.2
+```
 
 #### HTML Results
 
 **Location**: `gas-benchmarks/reports/index.html`
 
+**Features**:
+- Interactive comparison tables
+- Visual charts for performance metrics
+- Sortable by any column
+- Filterable by test name
 
 **Opening HTML Reports**:
 
@@ -686,13 +791,13 @@ benchmark_test_paths:
 | `postgres_user` | String | Empty | `DB_USER` | Authentication username |
 | `postgres_password` | String | Empty | `DB_PASSWORD` | Authentication password |
 | `postgres_database` | String | `monitoring` | - | Database name |
-| `postgres_table` | String | `gas_limit_benchmarks` | - | Table name |
+| `postgres_table` | String | `gas_limit_experiments` | - | Table name |
 
 **Setup Instructions**:
 
 #### Step 1: Create Database and Table
 
-Use `gas-benchmarks/generate_postgres_schema.py` to create the database table.
+**Option A: Use Schema Generator Script**
 
 ```bash
 python gas-benchmarks/generate_postgres_schema.py \
@@ -702,6 +807,61 @@ python gas-benchmarks/generate_postgres_schema.py \
     --db-name benchmarks \
     --table-name gas_benchmark_results
 ```
+
+**Option B: Manual Table Creation**
+
+If you prefer to create the table manually, use this schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS gas_limit_experiments (
+    id SERIAL PRIMARY KEY,
+
+    -- Test identification
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    client VARCHAR(50) NOT NULL,
+    client_image VARCHAR(255),
+
+    -- Performance metrics (MGas/s)
+    max_mgas_per_sec DECIMAL(10, 3),
+    p50_mgas_per_sec DECIMAL(10, 3),
+    p95_mgas_per_sec DECIMAL(10, 3),
+    p99_mgas_per_sec DECIMAL(10, 3),
+    min_mgas_per_sec DECIMAL(10, 3),
+
+    -- Timing metrics (milliseconds)
+    duration_ms DECIMAL(10, 3),
+    fcu_time_ms DECIMAL(10, 3),
+    np_time_ms DECIMAL(10, 3),
+
+    -- Run metadata
+    run_count INTEGER,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+
+    -- Indexing
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    benchmark_run_id VARCHAR(36)  -- UUID for grouping runs
+);
+
+-- Recommended indexes for common queries
+CREATE INDEX idx_gas_experiments_client ON gas_limit_experiments(client);
+CREATE INDEX idx_gas_experiments_title ON gas_limit_experiments(title);
+CREATE INDEX idx_gas_experiments_created ON gas_limit_experiments(created_at);
+CREATE INDEX idx_gas_experiments_run_id ON gas_limit_experiments(benchmark_run_id);
+```
+
+**Column Reference**:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `title` | VARCHAR | Test name from CSV |
+| `client` | VARCHAR | Ethereum client name (nethermind, geth, etc.) |
+| `p50_mgas_per_sec` | DECIMAL | Median throughput |
+| `p99_mgas_per_sec` | DECIMAL | 99th percentile throughput |
+| `fcu_time_ms` | DECIMAL | Fork Choice Update latency |
+| `np_time_ms` | DECIMAL | New Payload latency |
+| `benchmark_run_id` | VARCHAR | Groups results from same benchmark run |
 
 #### Step 2: Configure Connection
 
@@ -723,7 +883,7 @@ postgres_port: 5432
 postgres_user: "benchmark_user"
 postgres_password: "secret123"
 postgres_database: "monitoring"
-postgres_table: "gas_limit_benchmarks"
+postgres_table: "gas_limit_experiments"
 ```
 
 **Security Note**: Prefer environment variables for sensitive credentials. Avoid committing passwords to version control.
@@ -754,7 +914,7 @@ ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchm
 **Common Ingestion Errors**:
 - **Authentication failure**: Check `DB_USER` and `DB_PASSWORD`
 - **Connection timeout**: Verify `DB_HOST` is reachable, check firewall rules
-- **Table does not exist**: Run `populate_postgres_db.py` script to create the table (see Step 1)
+- **Table does not exist**: Ensure your PostgreSQL schema includes the required table. The `fill_postgres_db.py` script in the submodule handles ingestion, but table creation should be done separately.
 - **Duplicate entries**: Check table schema, ensure timestamp uniqueness
 
 ### Submodule Updates
@@ -1543,7 +1703,23 @@ fatal: [localhost]: FAILED! => {
 
 ## Quick Reference
 
-**Most Common Commands**:
+**Quickstart Commands** (Recommended):
+
+```bash
+# Complete setup (first time only)
+make setup
+
+# Run benchmark for single client
+make run CLIENT=nethermind
+
+# Run benchmarks for all default clients
+make run-all
+
+# Check if environment is ready
+make check-ready
+```
+
+**Alternative Commands** (Manual ansible-playbook):
 
 ```bash
 # Activate environment (required in each terminal session)

@@ -56,16 +56,17 @@
           ansible.builtin.shell: |
             python3 -c "
             import psycopg2
+            import os
             import sys
 
             try:
                 conn = psycopg2.connect(
-                    host='{{ postgres_host }}',
-                    port={{ postgres_port }},
-                    user='{{ postgres_user }}',
-                    password='{{ postgres_password }}',
-                    database='{{ postgres_database }}',
-                    connect_timeout={{ postgres_timeout }}
+                    host=os.environ['PGHOST'],
+                    port=int(os.environ['PGPORT']),
+                    user=os.environ['PGUSER'],
+                    password=os.environ['PGPASSWORD'],
+                    database=os.environ['PGDATABASE'],
+                    connect_timeout=int(os.environ.get('PGTIMEOUT', '10'))
                 )
                 conn.close()
                 print('Connection successful')
@@ -76,6 +77,13 @@
             "
           args:
             executable: /bin/bash
+          environment:
+            PGHOST: "{{ postgres_host }}"
+            PGPORT: "{{ postgres_port | string }}"
+            PGUSER: "{{ postgres_user }}"
+            PGPASSWORD: "{{ postgres_password }}"
+            PGDATABASE: "{{ postgres_database }}"
+            PGTIMEOUT: "{{ postgres_timeout | string }}"
           register: pg_connection_test
           changed_when: false
           no_log: true
@@ -86,24 +94,45 @@
             msg: "PostgreSQL database unreachable at {{ postgres_host }}:{{ postgres_port }}. Skipping ingestion."
           when: pg_connection_test.rc != 0
 
+        - name: Check if fill_postgres_db.py script exists
+          ansible.builtin.stat:
+            path: "{{ workspace_root }}/{{ benchmark_source_dir }}/fill_postgres_db.py"
+          register: fill_script_stat
+          when: pg_connection_test.rc == 0
+
+        - name: Fail if fill_postgres_db.py script not found
+          ansible.builtin.fail:
+            msg: "PostgreSQL ingestion script not found: {{ workspace_root }}/{{ benchmark_source_dir }}/fill_postgres_db.py. Ensure submodule is initialized."
+          when:
+            - pg_connection_test.rc == 0
+            - not fill_script_stat.stat.exists
+
         - name: Ingest results to PostgreSQL
           ansible.builtin.shell: |
             python3 {{ benchmark_source_dir }}/fill_postgres_db.py \
-              --db-host "{{ postgres_host }}" \
-              --db-port "{{ postgres_port }}" \
-              --db-user "{{ postgres_user }}" \
-              --db-name "{{ postgres_database }}" \
+              --db-host "$PGHOST" \
+              --db-port "$PGPORT" \
+              --db-user "$PGUSER" \
+              --db-name "$PGDATABASE" \
               --table-name "{{ postgres_table }}" \
-              --db-password "{{ postgres_password }}" \
+              --db-password "$PGPASSWORD" \
               --reports-dir "{{ benchmark_reports_dir }}"
           args:
             chdir: "{{ workspace_root }}"
             executable: /bin/bash
+          environment:
+            PGHOST: "{{ postgres_host }}"
+            PGPORT: "{{ postgres_port | string }}"
+            PGUSER: "{{ postgres_user }}"
+            PGPASSWORD: "{{ postgres_password }}"
+            PGDATABASE: "{{ postgres_database }}"
           register: ingestion_result
           no_log: true
           changed_when: ingestion_result.rc == 0
           failed_when: false
-          when: pg_connection_test.rc == 0
+          when:
+            - pg_connection_test.rc == 0
+            - fill_script_stat.stat.exists
 
         - name: Log ingestion success
           ansible.builtin.debug:

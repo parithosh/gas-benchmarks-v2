@@ -1,0 +1,29 @@
+# Example: Multi-Client Comparative Benchmarks
+#
+# Usage:
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+#     -i inventory/hosts.yml \
+#     -e @examples/multi-client-comparison.yml
+#
+# This configuration runs benchmarks across multiple clients for comparison.
+# Clients are executed sequentially (not in parallel) for fair comparison.
+---
+
+# Compare three popular clients
+benchmark_clients:
+  - nethermind
+  - geth
+  - reth
+
+# Use default images from gas-benchmarks/images.yaml
+benchmark_images:
+  nethermind: "default"
+  geth: "default"
+  reth: "default"
+
+# Run 5 times for reliable statistical comparison
+benchmark_runs: 5
+
+# Filter to precompile tests (faster execution)
+# Remove this line to run all tests
+benchmark_filter: "precompile"

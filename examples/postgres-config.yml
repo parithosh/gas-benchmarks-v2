@@ -1,0 +1,40 @@
+# Example: PostgreSQL Integration Configuration
+#
+# Usage:
+#   # Option 1: Using this file directly
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+#     -i inventory/hosts.yml \
+#     -e @examples/postgres-config.yml \
+#     --tags benchmarks,postgres
+#
+#   # Option 2: Using environment variables (recommended for secrets)
+#   export DB_HOST=db.example.com
+#   export DB_USER=benchmark_user
+#   export DB_PASSWORD=your_secure_password
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+#     -i inventory/hosts.yml \
+#     --tags benchmarks,postgres
+#
+# IMPORTANT: The --tags postgres flag is required to enable PostgreSQL ingestion.
+#
+# Security Note: Do NOT commit this file with real credentials.
+# Use environment variables or Ansible Vault for production.
+---
+
+# Database connection settings
+postgres_host: "db.example.com"
+postgres_port: 5432
+postgres_user: "benchmark_user"
+postgres_password: "CHANGE_ME"  # Use env var DB_PASSWORD instead
+postgres_database: "monitoring"
+postgres_table: "gas_limit_experiments"
+
+# Connection timeout in seconds
+postgres_timeout: 10
+
+# Benchmark settings
+benchmark_clients:
+  - nethermind
+  - geth
+
+benchmark_runs: 3

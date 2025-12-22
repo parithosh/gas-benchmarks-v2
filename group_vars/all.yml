@@ -28,7 +28,8 @@ benchmark_network: ""
 benchmark_snapshot_root: ""
 
 # Docker image configuration
-# "default" means use image from images.yaml, or specify custom image
+# "default" means use image from gas-benchmarks/images.yaml (in the submodule)
+# To override, specify a custom image URI for any client
 # Example override: {"nethermind": "ethpandaops/nethermind:1.25.0"}
 benchmark_images:
   nethermind: "default"
@@ -55,6 +56,8 @@ local_artifacts_dir: "{{ inventory_dir | dirname }}"
 postgres_host: "{{ DB_HOST | default(lookup('env', 'DB_HOST')) | default('') }}"
 postgres_user: "{{ DB_USER | default(lookup('env', 'DB_USER')) | default('') }}"
 postgres_password: "{{ DB_PASSWORD | default(lookup('env', 'DB_PASSWORD')) | default('') }}"
+# NOTE: The default table name is "gas_limit_experiments" - ensure your PostgreSQL
+# schema uses this name or override with -e "postgres_table=your_table_name"
 postgres_table: "gas_limit_experiments"
 postgres_database: "monitoring"
 postgres_port: 5432

@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
-.PHONY: help install validate test clean check-deps new-role new-playbook linux-preinstall
+.PHONY: help install validate test clean check-deps new-role new-playbook linux-preinstall setup run run-all check-ready
 
 # Detect platform
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
@@ -27,16 +27,26 @@ YAMLLINT := $(shell command -v yamllint 2>/dev/null || echo $(VENV_BIN)/yamllint
 ## help: Show this help message
 help:
 	@echo "Available targets:"
-	@echo "  install       - Set up Python environment and install dependencies"
-	@echo "  init-submodule - Initialize gas-benchmarks git submodule"
-	@echo "  prepare_tools - Prepare benchmark tools (Docker, Python deps, jq)"
-	@echo "  validate      - Run all linting checks (ansible-lint, yamllint)"
-	@echo "  test          - Run tests"
-	@echo "  new-role      - Create new role (usage: make new-role NAME=rolename)"
-	@echo "  new-playbook  - Create new playbook (usage: make new-playbook NAME=playbookname)"
-	@echo "  clean         - Remove virtual environment and caches"
-	@echo "  check-deps    - Verify all required dependencies are installed"
-	@echo "  linux-preinstall - Install prerequisites on Linux (curl, uv, ansible)"
+	@echo ""
+	@echo "  Quick Start:"
+	@echo "    setup         - Complete setup (install + init-submodule + prepare_tools)"
+	@echo "    run           - Run benchmark for single client (usage: make run CLIENT=nethermind)"
+	@echo "    run-all       - Run benchmarks for all default clients"
+	@echo "    check-ready   - Verify environment is ready for benchmarking"
+	@echo ""
+	@echo "  Setup:"
+	@echo "    install       - Set up Python environment and install dependencies"
+	@echo "    init-submodule - Initialize gas-benchmarks git submodule"
+	@echo "    prepare_tools - Prepare benchmark tools (Docker, Python deps, jq)"
+	@echo "    linux-preinstall - Install prerequisites on Linux (curl, uv, ansible)"
+	@echo ""
+	@echo "  Development:"
+	@echo "    validate      - Run all linting checks (ansible-lint, yamllint)"
+	@echo "    test          - Run tests"
+	@echo "    new-role      - Create new role (usage: make new-role NAME=rolename)"
+	@echo "    new-playbook  - Create new playbook (usage: make new-playbook NAME=playbookname)"
+	@echo "    check-deps    - Verify all required dependencies are installed"
+	@echo "    clean         - Remove virtual environment and caches"
 
 ## linux-preinstall: Install prerequisites on Linux (curl, uv, ansible)
 linux-preinstall:
@@ -138,6 +148,10 @@ new-role:
 		echo "Error: NAME is required. Usage: make new-role NAME=rolename"; \
 		exit 1; \
 	fi
+	@if echo "$(NAME)" | grep -qE '[^a-zA-Z0-9_-]'; then \
+		echo "Error: NAME must contain only alphanumeric characters, hyphens, and underscores"; \
+		exit 1; \
+	fi
 	@echo "==> Creating role $(NAME)..."
 	@$(VENV_BIN)/ansible-galaxy role init \
 		--init-path collections/ansible_collections/local/main/roles \
@@ -150,6 +164,10 @@ new-playbook:
 		echo "Error: NAME is required. Usage: make new-playbook NAME=playbookname"; \
 		exit 1; \
 	fi
+	@if echo "$(NAME)" | grep -qE '[^a-zA-Z0-9_-]'; then \
+		echo "Error: NAME must contain only alphanumeric characters, hyphens, and underscores"; \
+		exit 1; \
+	fi
 	@echo "==> Creating playbook $(NAME).yml..."
 	@mkdir -p collections/ansible_collections/local/main/playbooks
 	@echo "---" > collections/ansible_collections/local/main/playbooks/$(NAME).yml
@@ -160,6 +178,58 @@ new-playbook:
 	@echo "      ansible.builtin.debug:" >> collections/ansible_collections/local/main/playbooks/$(NAME).yml
 	@echo "        msg: 'Hello from $(NAME)'" >> collections/ansible_collections/local/main/playbooks/$(NAME).yml
 	@echo "✓ Playbook created at collections/ansible_collections/local/main/playbooks/$(NAME).yml"
+
+## setup: Complete setup (install + init-submodule + prepare_tools)
+setup: install init-submodule prepare_tools
+	@echo ""
+	@echo "=============================================="
+	@echo "✓ Setup complete!"
+	@echo "=============================================="
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Run a single client:  make run CLIENT=nethermind"
+	@echo "  2. Run all clients:      make run-all"
+	@echo "  3. Check environment:    make check-ready"
+	@echo ""
+
+## run: Run benchmark for a single client
+run: check-deps
+	@if [ -z "$(CLIENT)" ]; then \
+		echo "Error: CLIENT is required."; \
+		echo ""; \
+		echo "Usage: make run CLIENT=<client_name>"; \
+		echo ""; \
+		echo "Available clients: nethermind, geth, reth, besu, erigon, nimbus, ethrex"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make run CLIENT=nethermind"; \
+		echo "  make run CLIENT=geth"; \
+		exit 1; \
+	fi
+	@echo "==> Running benchmark for $(CLIENT)..."
+	@. $(VENV_BIN)/activate && ansible-playbook \
+		collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+		-i inventory/hosts.yml \
+		-e "benchmark_clients=['$(CLIENT)']"
+
+## run-all: Run benchmarks for all default clients
+run-all: check-deps
+	@echo "==> Running benchmarks for all default clients..."
+	@. $(VENV_BIN)/activate && ansible-playbook \
+		collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+		-i inventory/hosts.yml
+
+## check-ready: Verify environment is ready for benchmarking
+check-ready: check-deps
+	@echo "==> Verifying benchmark environment..."
+	@. $(VENV_BIN)/activate && ansible-playbook \
+		collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+		-i inventory/hosts.yml \
+		--tags environment,validate \
+		-e "benchmark_clients=['nethermind']" \
+		--check
+	@echo ""
+	@echo "✓ Environment is ready for benchmarking!"
 
 ## clean: Remove virtual environment and caches
 clean:

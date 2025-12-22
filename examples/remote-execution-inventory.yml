@@ -1,0 +1,45 @@
+# Example: Remote Execution Inventory
+#
+# This inventory file enables running benchmarks on a remote server.
+#
+# Usage:
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+#     -i examples/remote-execution-inventory.yml \
+#     -e "benchmark_clients=['nethermind']"
+#
+# Prerequisites on remote host:
+#   - SSH access configured (key-based authentication recommended)
+#   - Docker installed and running
+#   - Python 3.10+ installed
+#   - User has docker group membership
+#
+# After execution, results are synced back to local_artifacts_dir on your machine.
+---
+all:
+  hosts:
+    benchmark-server:
+      # Remote server connection
+      ansible_host: 192.168.1.100  # Replace with your server IP
+      ansible_user: benchmark      # Replace with your SSH user
+      ansible_port: 22
+
+      # Optional: Use specific SSH key
+      # ansible_ssh_private_key_file: ~/.ssh/benchmark_key
+
+      # Optional: Become root for package installation
+      # ansible_become: yes
+      # ansible_become_method: sudo
+
+  vars:
+    # Directory on remote host for benchmark execution
+    workspace_root: /home/benchmark/gas-benchmarks-v2
+
+    # Local directory to fetch results to after execution
+    local_artifacts_dir: /tmp/benchmark-results
+
+    # Benchmark configuration
+    benchmark_clients:
+      - nethermind
+      - geth
+
+    benchmark_runs: 3

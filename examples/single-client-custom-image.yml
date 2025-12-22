@@ -1,0 +1,23 @@
+# Example: Single Client with Custom Docker Image
+#
+# Usage:
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/run_benchmarks.yml \
+#     -i inventory/hosts.yml \
+#     -e @examples/single-client-custom-image.yml
+#
+# Or copy these values to group_vars/all.yml
+---
+
+# Benchmark only Nethermind
+benchmark_clients:
+  - nethermind
+
+# Use a specific Docker image version
+benchmark_images:
+  nethermind: "ethpandaops/nethermind:1.25.0"
+
+# Run 3 times for statistical significance
+benchmark_runs: 3
+
+# Filter to specific tests (optional - remove to run all)
+benchmark_filter: "bn128"

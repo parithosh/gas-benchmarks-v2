@@ -51,6 +51,53 @@
     msg: "Docker daemon not running or permission denied"
   when: docker_ps_result.rc != 0
 
+- name: Log Docker daemon validation result
+  ansible.builtin.debug:
+    msg: "✓ Docker daemon running"
+
+- name: Test Docker Hub connectivity
+  ansible.builtin.command: docker pull --quiet hello-world
+  register: docker_hub_result
+  changed_when: false
+  failed_when: false
+  timeout: 60
+
+- name: Warn if Docker Hub is not reachable
+  ansible.builtin.debug:
+    msg: "⚠️  WARNING: Could not pull from Docker Hub. Benchmark images may fail to download. Check network/firewall settings."
+  when: docker_hub_result.rc != 0
+
+- name: Log Docker Hub connectivity result
+  ansible.builtin.debug:
+    msg: "✓ Docker Hub connectivity verified"
+  when: docker_hub_result.rc == 0
+
+- name: Check if port 8545 (JSON-RPC) is available
+  ansible.builtin.wait_for:
+    port: 8545
+    state: stopped
+    timeout: 1
+  register: port_8545_result
+  failed_when: false
+
+- name: Check if port 8551 (Engine API) is available
+  ansible.builtin.wait_for:
+    port: 8551
+    state: stopped
+    timeout: 1
+  register: port_8551_result
+  failed_when: false
+
+- name: Warn if benchmark ports are in use
+  ansible.builtin.debug:
+    msg: "⚠️  WARNING: Ports 8545 or 8551 may be in use. This could cause conflicts during benchmarking."
+  when: (port_8545_result.failed | default(false)) or (port_8551_result.failed | default(false))
+
+- name: Log port availability result
+  ansible.builtin.debug:
+    msg: "✓ Ports 8545/8551 are available"
+  when: not (port_8545_result.failed | default(false)) and not (port_8551_result.failed | default(false))
+
 - name: Validate Python is installed
   ansible.builtin.command: python3 --version
   register: python_version_result
@@ -102,9 +149,17 @@
 
 - name: Add Microsoft package repository key (Debian/Ubuntu)
   ansible.builtin.shell: |
-    wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-    dpkg -i packages-microsoft-prod.deb
-    rm packages-microsoft-prod.deb
+    set -e
+    UBUNTU_VERSION=$(lsb_release -rs)
+    TEMP_DEB=$(mktemp)
+    wget -q "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VERSION}/packages-microsoft-prod.deb" -O "$TEMP_DEB"
+    if [ ! -s "$TEMP_DEB" ]; then
+      echo "Error: Failed to download Microsoft repository package" >&2
+      rm -f "$TEMP_DEB"
+      exit 1
+    fi
+    dpkg -i "$TEMP_DEB"
+    rm -f "$TEMP_DEB"
   args:
     executable: /bin/bash
   become: yes
@@ -112,8 +167,7 @@
     - dotnet_install_needed | bool
     - ansible_os_family == "Debian"
   register: microsoft_repo_result
-  changed_when: "'Setting up packages-microsoft-prod' in microsoft_repo_result.stdout"
-  failed_when: false
+  changed_when: microsoft_repo_result.rc == 0
 
 - name: Update apt cache after adding Microsoft repository
   ansible.builtin.apt:
@@ -126,10 +180,17 @@
 
 - name: Install dotnet SDK 9.0 using dotnet-install script
   ansible.builtin.shell: |
-    wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh
-    chmod +x /tmp/dotnet-install.sh
-    /tmp/dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet
-    rm /tmp/dotnet-install.sh
+    set -e
+    TEMP_SCRIPT=$(mktemp)
+    wget -q https://dot.net/v1/dotnet-install.sh -O "$TEMP_SCRIPT"
+    if [ ! -s "$TEMP_SCRIPT" ]; then
+      echo "Error: Failed to download dotnet-install script" >&2
+      rm -f "$TEMP_SCRIPT"
+      exit 1
+    fi
+    chmod +x "$TEMP_SCRIPT"
+    "$TEMP_SCRIPT" --channel 9.0 --install-dir /usr/share/dotnet
+    rm -f "$TEMP_SCRIPT"
     # Force update symlink to point to newly installed dotnet 9
     rm -f /usr/bin/dotnet
     ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
@@ -332,7 +393,9 @@
 
 - name: Install Python dependencies using uv
   ansible.builtin.shell: |
+    set -e
     # Try multiple possible uv locations
+    UV_CMD=""
     if command -v uv &> /dev/null; then
       UV_CMD="uv"
     elif [ -f "$HOME/.cargo/bin/uv" ]; then
@@ -340,9 +403,18 @@
     elif [ -f "$HOME/.local/bin/uv" ]; then
       UV_CMD="$HOME/.local/bin/uv"
     else
+      # Try adding common paths and check again
       export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-      UV_CMD="uv"
+      if command -v uv &> /dev/null; then
+        UV_CMD="uv"
+      fi
     fi
+
+    if [ -z "$UV_CMD" ]; then
+      echo "Error: UV package manager not found after installation. Ensure ~/.cargo/bin or ~/.local/bin is in PATH." >&2
+      exit 1
+    fi
+
     $UV_CMD venv
     $UV_CMD pip install -r requirements.txt
   args:
