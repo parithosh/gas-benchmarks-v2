@@ -112,7 +112,11 @@ prepare_tools:
 	@command -v jq >/dev/null || (echo "Error: jq not found. Install with: brew install jq (macOS) or apt install jq (Linux)" && exit 1)
 	@echo "==> Installing Python dependencies from gas-benchmarks/requirements.txt..."
 	@if [ -f gas-benchmarks/requirements.txt ]; then \
-		$(UV) pip install -r gas-benchmarks/requirements.txt; \
+		if [ -n "$(UV)" ]; then \
+			$(UV) pip install -r gas-benchmarks/requirements.txt; \
+		else \
+			$(VENV_BIN)/pip install -r gas-benchmarks/requirements.txt; \
+		fi; \
 	else \
 		echo "Warning: gas-benchmarks/requirements.txt not found. Skipping Python deps."; \
 	fi

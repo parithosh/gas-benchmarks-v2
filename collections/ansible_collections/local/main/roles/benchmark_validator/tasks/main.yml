@@ -147,7 +147,7 @@
   ansible.builtin.set_fact:
     dotnet_install_needed: "{{ (dotnet_version_result.rc != 0) or (dotnet_version is defined and dotnet_version is version(min_dotnet_version, '<')) }}"
 
-- name: Add Microsoft package repository key (Debian/Ubuntu)
+- name: Add Microsoft package repository key (Ubuntu only)
   ansible.builtin.shell: |
     set -e
     UBUNTU_VERSION=$(lsb_release -rs)
@@ -165,7 +165,7 @@
   become: yes
   when:
     - dotnet_install_needed | bool
-    - ansible_os_family == "Debian"
+    - ansible_distribution == "Ubuntu"
   register: microsoft_repo_result
   changed_when: microsoft_repo_result.rc == 0
 
@@ -175,7 +175,7 @@
   become: yes
   when:
     - dotnet_install_needed | bool
-    - ansible_os_family == "Debian"
+    - ansible_distribution == "Ubuntu"
     - microsoft_repo_result is changed
 
 - name: Install dotnet SDK 9.0 using dotnet-install script

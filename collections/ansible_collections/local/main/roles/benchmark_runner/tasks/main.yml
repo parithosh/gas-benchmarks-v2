@@ -18,6 +18,75 @@
     - /tmp/chainspec.json
   failed_when: false
 
+# Clean execution-data directory to ensure fresh start
+# This prevents stale database metadata errors (especially for Besu)
+- name: Stop and remove existing Docker containers for {{ client_name }}
+  ansible.builtin.shell: |
+    cd "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}"
+    docker compose down --volumes --remove-orphans 2>/dev/null || true
+  args:
+    executable: /bin/bash
+  changed_when: true
+  failed_when: false
+
+- name: Remove Docker volume for {{ client_name }}
+  ansible.builtin.shell: |
+    # Remove the named volume if it exists
+    volume_name=$(grep -E "^EC_VOLUME_NAME=" "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}/.env" 2>/dev/null | cut -d'=' -f2)
+    if [ -n "$volume_name" ]; then
+      docker volume rm "$volume_name" 2>/dev/null || true
+    fi
+    # Also try to remove common volume names
+    docker volume rm "{{ client_name }}_execution_data" 2>/dev/null || true
+    docker volume rm "gas-{{ client_name }}_execution_data" 2>/dev/null || true
+  args:
+    executable: /bin/bash
+  changed_when: true
+  failed_when: false
+
+- name: Clean execution-data directory for {{ client_name }}
+  ansible.builtin.shell: |
+    execution_data_dir="{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}/execution-data"
+    if [ -d "$execution_data_dir" ]; then
+      echo "Cleaning execution-data directory: $execution_data_dir"
+      sudo rm -rf "$execution_data_dir"/*
+      echo "Execution-data directory cleaned"
+    else
+      echo "Execution-data directory does not exist, creating it"
+      mkdir -p "$execution_data_dir"
+    fi
+  args:
+    executable: /bin/bash
+  become: yes
+  register: cleanup_result
+  changed_when: "'cleaned' in cleanup_result.stdout"
+  failed_when: false
+
+- name: Log execution-data cleanup result
+  ansible.builtin.debug:
+    msg: "{{ cleanup_result.stdout }}"
+  when: cleanup_result.stdout is defined
+
+# Patch Nethermind docker-compose.yaml for non-performance images
+# The --Blocks.CachePrecompilesOnBlockProcessing flag only exists in ethpandaops/nethermind:performance
+- name: Check if using non-performance Nethermind image
+  ansible.builtin.set_fact:
+    nethermind_needs_patch: "{{ client_name == 'nethermind' and benchmark_images.nethermind is defined and 'performance' not in benchmark_images.nethermind }}"
+
+- name: Patch Nethermind docker-compose.yaml for non-performance images (CachePrecompiles)
+  ansible.builtin.replace:
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/nethermind/docker-compose.yaml"
+    regexp: '^(\s*)-\s*--Blocks\.CachePrecompilesOnBlockProcessing=false\s*$'
+    replace: '\1# - --Blocks.CachePrecompilesOnBlockProcessing=false  # Disabled for non-performance image'
+  when: nethermind_needs_patch | default(false)
+
+- name: Patch Nethermind docker-compose.yaml for non-performance images (GenesisHash)
+  ansible.builtin.replace:
+    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/nethermind/docker-compose.yaml"
+    regexp: '^(\s*)-\s*--Init\.GenesisHash=.*$'
+    replace: '\1# - --Init.GenesisHash=...  # Disabled for non-performance image'
+  when: nethermind_needs_patch | default(false)
+
 - name: Execute benchmark for {{ client_name }}
   block:
     - name: Extract test path from first test (simplified for single path)
@@ -52,9 +121,9 @@
 
     - name: Execute benchmark run
       ansible.builtin.shell: |
-        # Activate virtualenv if it exists
-        if [ -d .venv ]; then
-          source .venv/bin/activate
+        # Activate virtualenv from workspace root (not gas-benchmarks subdirectory)
+        if [ -d "{{ workspace_root }}/.venv" ]; then
+          source "{{ workspace_root }}/.venv/bin/activate"
         fi
         # Run benchmark (timeout handled by async)
         {{ run_command }}
@@ -64,6 +133,7 @@
       environment:
         JWT_PATH: "{{ benchmark_jwt_path }}"
         PYTHONPATH: "{{ workspace_root }}/{{ benchmark_source_dir }}"
+        PATH: "{{ workspace_root }}/.venv/bin:{{ ansible_env.PATH }}"
       register: run_result
       changed_when: true
       async: 7200
