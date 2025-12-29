@@ -3,8 +3,12 @@
 # Purpose: Default variables for benchmark validation
 
 # Path configuration (inherited from group_vars, can be overridden)
+benchmark_workspace_root: "/home/benchmark/gas-benchmarks-v2"
 benchmark_source_dir: "gas-benchmarks"
 benchmark_tests_root: "gas-benchmarks"
+
+# Lock file to prevent concurrent execution
+benchmark_lock_file: "/tmp/gas_benchmark.lock"
 
 # Minimum required versions
 min_docker_version: "20.10"

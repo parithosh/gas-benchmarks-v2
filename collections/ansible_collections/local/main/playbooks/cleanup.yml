@@ -1,0 +1,157 @@
+---
+# Cleanup playbook for gas-benchmarks-v2
+# Run this when a benchmark is manually cancelled and leaves stale files behind
+#
+# Usage:
+#   ansible-playbook collections/ansible_collections/local/main/playbooks/cleanup.yml -i inventory/hosts.yml
+#
+# Options (to skip specific cleanup):
+#   -e "cleanup_results=false"   # Skip removing results/reports/logs directories
+#   -e "cleanup_docker=false"    # Skip stopping/removing Docker containers and volumes
+
+- name: Cleanup stale benchmark files
+  hosts: all
+  gather_facts: no
+
+  vars:
+    cleanup_results: true
+    cleanup_docker: true
+
+  tasks:
+    - name: Display cleanup targets
+      ansible.builtin.debug:
+        msg:
+          - "========== Benchmark Cleanup =========="
+          - "Workspace: {{ workspace_root }}"
+          - "Cleanup results: {{ cleanup_results }}"
+          - "Cleanup Docker: {{ cleanup_docker }}"
+
+    # ==========================================================================
+    # Lock File Cleanup
+    # ==========================================================================
+    - name: Remove lock file
+      ansible.builtin.file:
+        path: "{{ benchmark_lock_file | default('/tmp/gas_benchmark.lock') }}"
+        state: absent
+
+    # ==========================================================================
+    # Temp Files Cleanup
+    # ==========================================================================
+    - name: Clean up temp files (JWT, genesis)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ benchmark_jwt_path | default('/tmp/jwtsecret') }}"
+        - /tmp/genesis.json
+        - /tmp/chainspec.json
+      become: yes
+      failed_when: false
+
+    # ==========================================================================
+    # Overlay Mounts Cleanup
+    # ==========================================================================
+    - name: Clean up overlay mounts
+      ansible.builtin.shell: |
+        # Find and unmount all overlay mounts under workspace
+        overlay_runtime_path="{{ workspace_root }}/overlay-runtime"
+        if [ -d "$overlay_runtime_path" ]; then
+          for mount in $(mount | grep "$overlay_runtime_path" | awk '{print $3}'); do
+            echo "Unmounting: $mount"
+            umount -l "$mount" 2>/dev/null || true
+          done
+          rm -rf "$overlay_runtime_path"
+          echo "Removed overlay-runtime directory"
+        fi
+
+        # Also check default location
+        if [ -d "overlay-runtime" ]; then
+          for mount in $(mount | grep overlay-runtime | awk '{print $3}'); do
+            echo "Unmounting: $mount"
+            umount -l "$mount" 2>/dev/null || true
+          done
+          rm -rf overlay-runtime
+        fi
+      args:
+        executable: /bin/bash
+      become: yes
+      register: overlay_cleanup
+      changed_when: "'Unmounting' in overlay_cleanup.stdout or 'Removed' in overlay_cleanup.stdout"
+      failed_when: false
+
+    # ==========================================================================
+    # Docker Cleanup (optional)
+    # ==========================================================================
+    - name: Clean up Docker containers and volumes
+      when: cleanup_docker | bool
+      block:
+        - name: Stop and remove benchmark containers
+          ansible.builtin.shell: |
+            # Stop containers for all known clients
+            for client in nethermind geth reth erigon besu nimbus ethrex; do
+              client_dir="{{ workspace_root }}/{{ benchmark_source_dir | default('gas-benchmarks') }}/scripts/${client}"
+              if [ -d "$client_dir" ] && [ -f "$client_dir/docker-compose.yaml" ]; then
+                echo "Stopping containers for: $client"
+                cd "$client_dir"
+                docker compose down --volumes --remove-orphans 2>/dev/null || true
+              fi
+            done
+
+            # Remove any lingering benchmark-related containers
+            docker ps -a --filter "name=nethermind" --filter "name=geth" --filter "name=reth" \
+              --filter "name=erigon" --filter "name=besu" --filter "name=nimbus" --filter "name=ethrex" \
+              -q | xargs -r docker rm -f 2>/dev/null || true
+
+            echo "Docker containers cleaned"
+          args:
+            executable: /bin/bash
+          register: docker_cleanup
+          changed_when: "'Stopping' in docker_cleanup.stdout"
+          failed_when: false
+
+        - name: Remove benchmark Docker volumes
+          ansible.builtin.shell: |
+            # Remove volumes matching benchmark patterns
+            for client in nethermind geth reth erigon besu nimbus ethrex; do
+              docker volume rm "${client}_execution_data" 2>/dev/null || true
+              docker volume rm "gas-${client}_execution_data" 2>/dev/null || true
+            done
+
+            # Remove any volumes with benchmark timestamps
+            docker volume ls -q | grep -E '^(nethermind|geth|reth|erigon|besu|nimbus|ethrex)_[0-9]+' | \
+              xargs -r docker volume rm 2>/dev/null || true
+
+            echo "Docker volumes cleaned"
+          args:
+            executable: /bin/bash
+          changed_when: false
+          failed_when: false
+
+    # ==========================================================================
+    # Results Cleanup (optional)
+    # ==========================================================================
+    - name: Clean up results directories
+      when: cleanup_results | bool
+      ansible.builtin.file:
+        path: "{{ workspace_root }}/{{ item }}"
+        state: absent
+      loop:
+        - results
+        - reports
+        - logs
+        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/results"
+        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/reports"
+        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/logs"
+
+    # ==========================================================================
+    # Summary
+    # ==========================================================================
+    - name: Cleanup summary
+      ansible.builtin.debug:
+        msg:
+          - "========== Cleanup Complete =========="
+          - "✓ Lock file removed"
+          - "✓ Temp files cleaned (JWT, genesis)"
+          - "✓ Overlay mounts unmounted"
+          - "{{ '✓ Docker containers/volumes removed' if cleanup_docker | bool else '○ Docker cleanup skipped (-e cleanup_docker=false)' }}"
+          - "{{ '✓ Results directories removed' if cleanup_results | bool else '○ Results cleanup skipped (-e cleanup_results=false)' }}"

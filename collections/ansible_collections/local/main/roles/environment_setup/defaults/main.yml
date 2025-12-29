@@ -2,6 +2,10 @@
 # Role: environment_setup
 # Purpose: Default variables for environment setup
 
+benchmark_workspace_root: "/home/benchmark/gas-benchmarks-v2"
+benchmark_source_dir: "gas-benchmarks"
+benchmark_source_repo: "https://github.com/NethermindEth/gas-benchmarks.git"
+benchmark_source_branch: "main"
 benchmark_lock_file: "/tmp/gas_benchmark.lock"
 benchmark_results_dir: "results"
 benchmark_warmup_results_dir: "warmupresults"
@@ -9,3 +13,10 @@ benchmark_reports_dir: "reports"
 benchmark_logs_dir: "logs"
 benchmark_preparation_results_dir: "prepresults"
 benchmark_overlay_tmp_root: "overlay-runtime"
+
+# Overlay snapshot mode (disabled by default)
+benchmark_overlay_enabled: false
+benchmark_snapshot_root: ""
+
+# Minimum required versions for installed tools
+min_dotnet_version: "9.0"

@@ -6,33 +6,41 @@
   vars:
     client_failures: []
     playbook_start_time: "{{ ansible_date_time.epoch }}"
-    # Local project root (always on controller, for loading config files)
-    project_root: "{{ playbook_dir }}/../../../../.."
-
-  vars_files:
-    - "{{ project_root }}/group_vars/all.yml"
-
-  pre_tasks:
-    - name: Set workspace root (use inventory value or compute from playbook dir)
-      ansible.builtin.set_fact:
-        workspace_root: "{{ workspace_root | default(project_root) }}"
-      tags: ['always']
+    local_artifacts_dir: "{{ playbook_dir }}/../../../../../"
 
   tasks:
-    - name: Record playbook start time
+    - name: Record playbook start time and run timestamp
       ansible.builtin.set_fact:
         playbook_start_time: "{{ ansible_date_time.epoch }}"
+        benchmark_run_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
       tags: ['always']
+
+    - name: Log run timestamp
+      ansible.builtin.debug:
+        msg: "Benchmark run timestamp: {{ benchmark_run_timestamp }}"
+      tags: ['always']
+
+    # Normalize benchmark_clients (handles string from CLI -e flag)
+    # Note: Extra vars have highest precedence and can't be overridden, so we use a new variable
+    - name: Normalize benchmark_clients to list
+      ansible.builtin.set_fact:
+        _benchmark_clients_list: "{{ benchmark_clients | replace(\"'\", '\"') | from_json if benchmark_clients is string else benchmark_clients }}"
+      tags: ['always']
+
     # Phase 1: Environment Setup
     - name: Environment setup
-      ansible.builtin.import_role:
+      ansible.builtin.include_role:
         name: environment_setup
-      tags: ['always']
+      vars:
+        benchmark_workspace_root: "{{ workspace_root }}"
+      tags: ['setup']
 
     # Phase 2: Validation
     - name: Validate prerequisites
-      ansible.builtin.import_role:
+      ansible.builtin.include_role:
         name: benchmark_validator
+      vars:
+        benchmark_workspace_root: "{{ workspace_root }}"
       tags: ['always']
 
     # Phase 3: Benchmark Execution (sequential, per client)
@@ -43,6 +51,7 @@
             name: benchmark_runner
           vars:
             client_name: "{{ item }}"
+            benchmark_workspace_root: "{{ workspace_root }}"
           loop: "{{ benchmark_clients }}"
           loop_control:
             loop_var: item
@@ -59,6 +68,42 @@
           no_log: true
 
       tags: ['benchmarks']
+
+    # Phase 3.5: Fetch Artifacts (remote execution only, after all clients)
+    - name: Fetch artifacts to local machine
+      when: inventory_hostname not in ['localhost', '127.0.0.1']
+      tags: ['benchmarks']
+      block:
+        - name: Ensure local artifact directories exist
+          ansible.builtin.file:
+            path: "{{ local_artifacts_dir }}/{{ item }}"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+          loop:
+            - results
+            - reports
+            - logs
+
+        - name: Fetch artifacts from remote (pull only, no overwrite)
+          ansible.posix.synchronize:
+            src: "{{ workspace_root }}/{{ item }}/"
+            dest: "{{ local_artifacts_dir }}/{{ item }}/"
+            mode: pull
+            recursive: yes
+            rsync_opts:
+              - "--ignore-existing"
+          delegate_to: localhost
+          register: fetch_results
+          failed_when: false
+          loop:
+            - results
+            - reports
+            - logs
+
+        - name: Log remote fetch summary
+          ansible.builtin.debug:
+            msg: "Remote artifacts fetched to {{ local_artifacts_dir }}/: {{ fetch_results.results | selectattr('changed') | map(attribute='item') | list | join(', ') | default('none') }}"
 
     # Phase 4: PostgreSQL Ingestion (optional, tag-based)
     - name: Publish results to PostgreSQL
@@ -82,6 +127,16 @@
             path: "{{ benchmark_lock_file | default('/tmp/gas_benchmark.lock') }}"
             state: absent
 
+        - name: Clean up temp files (JWT, genesis)
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ benchmark_jwt_path | default('/tmp/jwtsecret') }}"
+            - /tmp/genesis.json
+            - /tmp/chainspec.json
+          become: yes
+
         - name: Clean up overlay mounts
           ansible.builtin.shell: |
             # Find and unmount all overlay mounts under overlay-runtime
@@ -94,7 +149,7 @@
             fi
           args:
             executable: /bin/bash
-          when: benchmark_snapshot_root | default('') != ''
+          when: benchmark_overlay_enabled | default(false)
           ignore_errors: yes
       always:
         - name: Ensure cleanup completion

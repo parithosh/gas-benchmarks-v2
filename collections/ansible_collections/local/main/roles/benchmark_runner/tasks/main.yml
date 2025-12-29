@@ -6,54 +6,34 @@
   ansible.builtin.debug:
     msg: "========== Benchmark Execution Phase: {{ client_name }} =========="
 
-- name: Log benchmark images configuration
-  ansible.builtin.debug:
-    msg: "benchmark_images: {{ benchmark_images | to_json }}"
-
-- name: Clean up stale genesis files from /tmp
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /tmp/chainspec.json
-  failed_when: false
-
-# Clean execution-data directory to ensure fresh start
-# This prevents stale database metadata errors (especially for Besu)
-- name: Stop and remove existing Docker containers for {{ client_name }}
+# =============================================================================
+# Pre-Execution Cleanup
+# Stops containers, removes volumes, cleans execution-data directory
+# =============================================================================
+- name: Clean up previous execution state
   ansible.builtin.shell: |
-    cd "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}"
+    set -e
+    CLIENT="{{ client_name }}"
+    CLIENT_DIR="{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/scripts/${CLIENT}"
+
+    # Stop and remove existing containers
+    cd "$CLIENT_DIR"
     docker compose down --volumes --remove-orphans 2>/dev/null || true
-  args:
-    executable: /bin/bash
-  changed_when: true
-  failed_when: false
 
-- name: Remove Docker volume for {{ client_name }}
-  ansible.builtin.shell: |
-    # Remove the named volume if it exists
-    volume_name=$(grep -E "^EC_VOLUME_NAME=" "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}/.env" 2>/dev/null | cut -d'=' -f2)
-    if [ -n "$volume_name" ]; then
-      docker volume rm "$volume_name" 2>/dev/null || true
-    fi
-    # Also try to remove common volume names
-    docker volume rm "{{ client_name }}_execution_data" 2>/dev/null || true
-    docker volume rm "gas-{{ client_name }}_execution_data" 2>/dev/null || true
-  args:
-    executable: /bin/bash
-  changed_when: true
-  failed_when: false
+    # Remove Docker volumes (check .env for custom name, plus common patterns)
+    volume_name=$(grep -E "^EC_VOLUME_NAME=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 || true)
+    [ -n "$volume_name" ] && docker volume rm "$volume_name" 2>/dev/null || true
+    docker volume rm "${CLIENT}_execution_data" 2>/dev/null || true
+    docker volume rm "gas-${CLIENT}_execution_data" 2>/dev/null || true
 
-- name: Clean execution-data directory for {{ client_name }}
-  ansible.builtin.shell: |
-    execution_data_dir="{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/{{ client_name }}/execution-data"
+    # Clean execution-data directory
+    execution_data_dir="$CLIENT_DIR/execution-data"
     if [ -d "$execution_data_dir" ]; then
-      echo "Cleaning execution-data directory: $execution_data_dir"
-      sudo rm -rf "$execution_data_dir"/*
-      echo "Execution-data directory cleaned"
+      rm -rf "$execution_data_dir"/*
+      echo "cleaned"
     else
-      echo "Execution-data directory does not exist, creating it"
       mkdir -p "$execution_data_dir"
+      echo "created"
     fi
   args:
     executable: /bin/bash
@@ -62,340 +42,227 @@
   changed_when: "'cleaned' in cleanup_result.stdout"
   failed_when: false
 
-- name: Log execution-data cleanup result
-  ansible.builtin.debug:
-    msg: "{{ cleanup_result.stdout }}"
-  when: cleanup_result.stdout is defined
+# Clean stale genesis/temp files from /tmp (needed fresh for each client)
+# These can become directories if script crashes mid-copy, causing permission errors
+- name: Clean stale temp files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/chainspec.json
+    - /tmp/genesis.json
+  become: yes
+  failed_when: false
 
-# Patch Nethermind docker-compose.yaml for non-performance images
-# The --Blocks.CachePrecompilesOnBlockProcessing flag only exists in ethpandaops/nethermind:performance
-- name: Check if using non-performance Nethermind image
+# Clean JWT secret path (prevents "cannot create regular file" errors if it exists as directory)
+- name: Clean JWT secret path
+  ansible.builtin.file:
+    path: "{{ benchmark_jwt_path }}"
+    state: absent
+  become: yes
+  failed_when: false
+
+# =============================================================================
+# Nethermind Image Patching
+# Non-performance images don't support certain flags. We use yq to cleanly
+# remove them from docker-compose.yaml and restore from git after run.
+# =============================================================================
+- name: Check if Nethermind needs patching
   ansible.builtin.set_fact:
     nethermind_needs_patch: "{{ client_name == 'nethermind' and benchmark_images.nethermind is defined and 'performance' not in benchmark_images.nethermind }}"
 
-- name: Patch Nethermind docker-compose.yaml for non-performance images (CachePrecompiles)
-  ansible.builtin.replace:
-    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/nethermind/docker-compose.yaml"
-    regexp: '^(\s*)-\s*--Blocks\.CachePrecompilesOnBlockProcessing=false\s*$'
-    replace: '\1# - --Blocks.CachePrecompilesOnBlockProcessing=false  # Disabled for non-performance image'
+- name: Patch Nethermind docker-compose for non-performance images (using yq)
   when: nethermind_needs_patch | default(false)
+  ansible.builtin.shell: |
+    # Remove performance-only flags from nethermind command array
+    # - --Blocks.CachePrecompilesOnBlockProcessing (only in performance images)
+    # - --Init.GenesisHash (only in performance images)
+    yq -i 'del(.services.nethermind.command[] | select(test("CachePrecompilesOnBlockProcessing|Init\.GenesisHash")))' \
+      "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/scripts/nethermind/docker-compose.yaml"
+  args:
+    executable: /bin/bash
+  changed_when: true
 
-- name: Patch Nethermind docker-compose.yaml for non-performance images (GenesisHash)
-  ansible.builtin.replace:
-    path: "{{ workspace_root }}/{{ benchmark_source_dir }}/scripts/nethermind/docker-compose.yaml"
-    regexp: '^(\s*)-\s*--Init\.GenesisHash=.*$'
-    replace: '\1# - --Init.GenesisHash=...  # Disabled for non-performance image'
-  when: nethermind_needs_patch | default(false)
-
+# =============================================================================
+# Benchmark Execution
+# =============================================================================
 - name: Execute benchmark for {{ client_name }}
   block:
-    - name: Extract test path from first test (simplified for single path)
-      ansible.builtin.set_fact:
-        primary_test_path: "{{ benchmark_test_paths[0].path | regex_replace('^' + benchmark_tests_root + '/', '') }}"
-        primary_genesis: "{{ benchmark_test_paths[0].genesis | default('') }}"
-
-    - name: Build run.sh command (using legacy -t format)
-      ansible.builtin.set_fact:
-        run_command: >-
-          bash run.sh
-          -t "{{ primary_test_path }}"
-          {{ '-g ' + primary_genesis if primary_genesis != '' else '' }}
-          -c "{{ client_name }}"
-          -r {{ benchmark_runs }}
-          {{ '-w "' + benchmark_warmup_file + '"' if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }}
-          {{ '-f "' + benchmark_filter + '"' if (benchmark_filter is defined and benchmark_filter != '') else '' }}
-          {{ '-n "' + benchmark_network + '"' if (benchmark_network is defined and benchmark_network != '') else '' }}
-          {{ '-B "' + benchmark_snapshot_root + '"' if (benchmark_snapshot_root is defined and benchmark_snapshot_root != '') else '' }}
-          {{ '-R' if benchmark_restart_before_testing | default(false) else '' }}
-          {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }}
-          {{ '-o ' + benchmark_opcodes_warmup_count | string if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count > 0) else '' }}
-          {{ "-i '" + (benchmark_images | to_json) + "'" if (benchmark_images | default({}) | length > 0) else '' }}
-
-    - name: Log benchmark command construction
+    - name: Debug - show variables being used
       ansible.builtin.debug:
-        msg: "Benchmark command for {{ client_name }}: {{ run_command }}"
+        msg:
+          - "benchmark_test_paths: {{ benchmark_test_paths | default('UNDEFINED') }}"
+          - "genesis: {{ benchmark_test_paths[0].genesis | default('UNDEFINED') }}"
+          - "filter: {{ benchmark_filter | default('UNDEFINED') }}"
+          - "Command will be: bash run.sh -t {{ benchmark_test_paths[0].path | default('') | regex_replace('^' + benchmark_tests_root + '/', '') }} {{ '-g ' + benchmark_test_paths[0].genesis if benchmark_test_paths[0].genesis is defined else '(no genesis)' }} -c {{ client_name }} -r {{ benchmark_runs }} {{ '-f ' + benchmark_filter if benchmark_filter is defined and benchmark_filter != '' else '(no filter)' }}"
 
-    - name: Log benchmark execution start
-      ansible.builtin.debug:
-        msg: "Starting benchmark execution for {{ client_name }}..."
-
-    - name: Execute benchmark run
+    - name: Build and execute benchmark command
       ansible.builtin.shell: |
-        # Activate virtualenv from workspace root (not gas-benchmarks subdirectory)
-        if [ -d "{{ workspace_root }}/.venv" ]; then
-          source "{{ workspace_root }}/.venv/bin/activate"
+        # Activate virtualenv (created by environment_setup in the source dir)
+        VENV_PATH="{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/.venv"
+        if [ -d "$VENV_PATH" ]; then
+          source "$VENV_PATH/bin/activate"
+          echo "Activated venv at $VENV_PATH"
+          echo "Python: $(which python3)"
+        else
+          echo "ERROR: venv not found at $VENV_PATH"
+          echo "Run the environment_setup role first or ensure 'setup' tag is included"
+          exit 1
         fi
-        # Run benchmark (timeout handled by async)
-        {{ run_command }}
+
+        # Extract test path (strip benchmark_tests_root prefix if present)
+        TEST_PATH="{{ benchmark_test_paths[0].path | regex_replace('^' + benchmark_tests_root + '/', '') }}"
+
+        # Log file for debugging (timestamped directory for no collision)
+        LOG_DIR="{{ benchmark_workspace_root }}/{{ benchmark_logs_dir }}/{{ benchmark_run_timestamp }}"
+        LOG_FILE="$LOG_DIR/{{ client_name }}_run.log"
+        mkdir -p "$LOG_DIR"
+
+        # Run benchmark and capture output to log file
+        bash run.sh \
+          -t "$TEST_PATH" \
+          {{ '-g "' + benchmark_test_paths[0].genesis + '"' if benchmark_test_paths[0].genesis is defined else '' }} \
+          -c "{{ client_name }}" \
+          -r {{ benchmark_runs }} \
+          {{ '-w "' + benchmark_warmup_file + '"' if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }} \
+          {{ '-f "' + benchmark_filter + '"' if (benchmark_filter is defined and benchmark_filter != '') else '' }} \
+          {{ '-n "' + benchmark_network + '"' if (benchmark_network is defined and benchmark_network != '') else '' }} \
+          {{ '-B "' + benchmark_snapshot_root + '"' if (benchmark_overlay_enabled | default(false)) else '' }} \
+          {{ '-R' if benchmark_restart_before_testing | default(false) else '' }} \
+          {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }} \
+          {{ '-o ' + (benchmark_opcodes_warmup_count | string) if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count | int > 0) else '' }} \
+          {{ "-i '" + (benchmark_images | to_json) + "'" if (benchmark_images | default({}) | length > 0) else '' }} \
+          2>&1 | tee "$LOG_FILE"
+
+        # Return the exit code of bash run.sh (not tee)
+        exit ${PIPESTATUS[0]}
       args:
-        chdir: "{{ workspace_root }}/{{ benchmark_source_dir }}"
+        chdir: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}"
         executable: /bin/bash
       environment:
         JWT_PATH: "{{ benchmark_jwt_path }}"
-        PYTHONPATH: "{{ workspace_root }}/{{ benchmark_source_dir }}"
-        PATH: "{{ workspace_root }}/.venv/bin:{{ ansible_env.PATH }}"
+        PYTHONPATH: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}"
+        PATH: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/.venv/bin:{{ ansible_env.PATH }}"
       register: run_result
       changed_when: true
       async: 7200
       poll: 30
 
-    - name: Log benchmark execution end
-      ansible.builtin.debug:
-        msg: "Benchmark execution completed for {{ client_name }} with exit code {{ run_result.rc }}"
 
-    - name: Check if benchmark succeeded
+    - name: Verify benchmark succeeded
       ansible.builtin.assert:
-        that:
-          - run_result.rc == 0
+        that: run_result.rc == 0
         fail_msg: |
-          Benchmark execution failed for {{ client_name }} (exit code: {{ run_result.rc }})
+          Benchmark failed for {{ client_name }} (exit code: {{ run_result.rc }})
 
-          STDERR:
-          {{ run_result.stderr | default('(no stderr output)') }}
+          STDERR: {{ run_result.stderr | default('(none)') }}
+          STDOUT (last 20 lines): {{ (run_result.stdout | default('')).split('\n')[-20:] | join('\n') }}
 
-          STDOUT (last 20 lines):
-          {{ (run_result.stdout | default('(no stdout output)')).split('\n')[-20:] | join('\n') }}
-
-          NEXT STEPS:
-          1. Check Docker logs: docker logs $(docker ps -aq --filter name={{ client_name }} | head -1)
-          2. Check benchmark logs: cat {{ workspace_root }}/{{ benchmark_logs_dir }}/{{ client_name }}/*.log
-          3. Re-run with verbose output: add -vv flag to ansible-playbook command
-        success_msg: "Benchmark execution succeeded for {{ client_name }}"
-
-    - name: Register client success
-      ansible.builtin.set_fact:
-        client_execution_status:
-          client: "{{ client_name }}"
-          status: "success"
-          return_code: "{{ run_result.rc }}"
-          stdout: "{{ run_result.stdout }}"
+          Check: docker logs $(docker ps -aq --filter name={{ client_name }} | head -1)
+        success_msg: "✓ Benchmark succeeded for {{ client_name }}"
 
   rescue:
     - name: Log benchmark failure
       ansible.builtin.debug:
-        msg: "Failed to execute benchmarks for {{ client_name }}: {{ ansible_failed_result.msg | default('Unknown error') }}"
+        msg: "Benchmark execution failed for {{ client_name }}"
 
-    - name: Register client failure
-      ansible.builtin.set_fact:
-        client_execution_status:
-          client: "{{ client_name }}"
-          status: "failed"
-          error_message: "{{ ansible_failed_result.msg | default('Unknown error') }}"
-          return_code: "{{ run_result.rc | default(-1) }}"
-
-          stderr: "{{ run_result.stderr | default('') }}"
-
-    - name: Mark this client as failed
+    - name: Fail with error details
       ansible.builtin.fail:
         msg: "Benchmark execution failed for {{ client_name }}"
 
   always:
-    - name: Collect Docker logs for client
+    # =========================================================================
+    # Post-Execution: Restore Patched Files
+    # =========================================================================
+    - name: Restore Nethermind docker-compose.yaml from git
+      ansible.builtin.command:
+        cmd: git checkout scripts/nethermind/docker-compose.yaml
+        chdir: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}"
+      when: nethermind_needs_patch | default(false)
+      changed_when: true
+      failed_when: false
+
+    # =========================================================================
+    # Post-Execution: Log Collection
+    # =========================================================================
+    - name: Collect Docker logs
       ansible.builtin.shell: |
-        set -e
-        log_dir="{{ workspace_root }}/{{ benchmark_logs_dir }}/{{ client_name }}"
+        log_dir="{{ benchmark_workspace_root }}/{{ benchmark_logs_dir }}/{{ benchmark_run_timestamp }}/{{ client_name }}"
         mkdir -p "$log_dir"
 
-        # Get list of containers for this client
-        containers=$(docker ps -a --filter "name={{ client_name }}" --format "{{ '{{' }}.Names{{ '}}' }}" 2>/dev/null || true)
-        collected_count=0
-
-        if [ -n "$containers" ]; then
-          for container in $containers; do
-            echo "Collecting logs for container: $container"
-            if docker logs "$container" > "$log_dir/${container}.log" 2>&1; then
-              collected_count=$((collected_count + 1))
-            else
-              echo "Warning: Failed to collect logs for $container" >&2
-            fi
-          done
-          echo "Logs collected for {{ client_name }}: $collected_count containers"
-        else
-          echo "No containers found for {{ client_name }}"
-        fi
-
-        # Verify at least some logs were collected
-        log_count=$(find "$log_dir" -name "*.log" -type f 2>/dev/null | wc -l)
-        echo "Total log files in $log_dir: $log_count"
+        containers=$(docker ps -a --filter "name={{ client_name }}" --format "{% raw %}{{.Names}}{% endraw %}" 2>/dev/null || true)
+        count=0
+        for container in $containers; do
+          docker logs "$container" > "$log_dir/${container}.log" 2>&1 && count=$((count + 1))
+        done
+        echo "Collected $count container logs to $log_dir"
       args:
         executable: /bin/bash
-      register: log_collection_result
-      changed_when: "'Logs collected' in log_collection_result.stdout"
+      register: log_collection
+      changed_when: false
       failed_when: false
 
-    - name: Check if reports directory exists
-      ansible.builtin.stat:
-        path: "{{ workspace_root }}/{{ benchmark_source_dir }}/reports"
-      register: reports_dir_stat
-
-    - name: Fail if reports directory does not exist
-      ansible.builtin.fail:
-        msg: |
-          Benchmark failed: reports directory does not exist at {{ benchmark_source_dir }}/reports/
-
-          This usually means the benchmark script crashed before generating any output.
-
-          TROUBLESHOOTING:
-          1. Check Docker container logs: docker logs $(docker ps -aq --filter name={{ client_name }} | head -1)
-          2. Check if the client started: docker ps -a | grep {{ client_name }}
-          3. Check disk space: df -h {{ workspace_root }}
-          4. Check benchmark logs: ls -la {{ workspace_root }}/{{ benchmark_logs_dir }}/{{ client_name }}/
-
-          COMMON CAUSES:
-          - Client Docker image failed to pull (check network/registry access)
-          - Client crashed on startup (check genesis file compatibility)
-          - Insufficient disk space
-          - Port conflicts (8545/8551 already in use)
-      when: not reports_dir_stat.stat.exists
-
-    - name: Check reports directory for generated artifacts
-      ansible.builtin.find:
-        paths: "{{ workspace_root }}/{{ benchmark_source_dir }}/reports"
-        file_type: file
-      register: reports_files
-      when: reports_dir_stat.stat.exists
-
-    - name: Fail if reports directory is empty
-      ansible.builtin.fail:
-        msg: |
-          Benchmark failed: reports directory exists but contains no files at {{ benchmark_source_dir }}/reports/
-
-          The benchmark ran but did not produce any output files.
-
-          TROUBLESHOOTING:
-          1. Check if tests matched your filter: ls {{ workspace_root }}/{{ benchmark_source_dir }}/eest_tests/ | grep -i "{{ benchmark_filter | default('') }}"
-          2. Check benchmark script output: cat {{ workspace_root }}/{{ benchmark_logs_dir }}/{{ client_name }}/*.log
-          3. Verify Docker container completed: docker ps -a | grep {{ client_name }}
-
-          COMMON CAUSES:
-          - Test filter "{{ benchmark_filter | default('(none)') }}" matched zero tests
-          - Benchmark script exited early due to RPC connection failure
-          - Client failed to sync or initialize state
-      when:
-        - reports_dir_stat.stat.exists
-        - (reports_files.matched | default(0)) == 0
-
-    - name: Log validation success
-      ansible.builtin.debug:
-        msg: "Benchmark validation passed: {{ reports_files.matched }} report files generated"
-      when:
-        - reports_dir_stat.stat.exists
-        - reports_files.matched > 0
-
-    - name: Copy results artifacts from gas-benchmarks to top-level
-      ansible.builtin.synchronize:
-        src: "{{ workspace_root }}/{{ benchmark_source_dir }}/results/"
-        dest: "{{ workspace_root }}/results/"
-        mode: push
-        delete: no
-        recursive: yes
-      delegate_to: "{{ inventory_hostname }}"
-      register: results_sync_result
-      failed_when: false
-
-    - name: Warn if results sync failed
-      ansible.builtin.debug:
-        msg: "⚠️  WARNING: Failed to sync results directory. Results may be incomplete. Check: {{ workspace_root }}/{{ benchmark_source_dir }}/results/"
-      when: results_sync_result.failed | default(false)
-
-    - name: Copy reports artifacts from gas-benchmarks to top-level
-      ansible.builtin.synchronize:
-        src: "{{ workspace_root }}/{{ benchmark_source_dir }}/reports/"
-        dest: "{{ workspace_root }}/reports/"
-        mode: push
-        delete: no
-        recursive: yes
-      delegate_to: "{{ inventory_hostname }}"
-      register: reports_sync_result
-      failed_when: false
-
-    - name: Warn if reports sync failed
-      ansible.builtin.debug:
-        msg: "⚠️  WARNING: Failed to sync reports directory. Reports may be incomplete. Check: {{ workspace_root }}/{{ benchmark_source_dir }}/reports/"
-      when: reports_sync_result.failed | default(false)
-
-    - name: Copy logs artifacts from gas-benchmarks to top-level
-      ansible.builtin.synchronize:
-        src: "{{ workspace_root }}/{{ benchmark_source_dir }}/logs/"
-        dest: "{{ workspace_root }}/logs/"
-        mode: push
-        delete: no
-        recursive: yes
-      delegate_to: "{{ inventory_hostname }}"
-      register: logs_sync_result
-      failed_when: false
-
-    - name: Warn if logs sync failed
-      ansible.builtin.debug:
-        msg: "⚠️  WARNING: Failed to sync logs directory. Logs may be incomplete. Check: {{ workspace_root }}/{{ benchmark_source_dir }}/logs/"
-      when: logs_sync_result.failed | default(false)
-
-    - name: Log artifact collection summary
-      ansible.builtin.debug:
-        msg: |
-          Artifact collection completed:
-          - Results: {{ 'copied' if results_sync_result.changed else ('FAILED' if results_sync_result.failed | default(false) else 'no changes') }}
-          - Reports: {{ 'copied' if reports_sync_result.changed else ('FAILED' if reports_sync_result.failed | default(false) else 'no changes') }}
-          - Logs: {{ 'copied' if logs_sync_result.changed else ('FAILED' if logs_sync_result.failed | default(false) else 'no changes') }}
-
-    - name: Fetch artifacts to local machine (remote execution only)
-      when: inventory_hostname != 'localhost' and inventory_hostname != '127.0.0.1'
+    # =========================================================================
+    # Post-Execution: Validate Reports (optional)
+    # =========================================================================
+    - name: Validate reports generated
+      when: benchmark_validate_reports | default(true)
       block:
-        - name: Ensure local results directory exists
-          ansible.builtin.file:
-            path: "{{ local_artifacts_dir }}/results"
-            state: directory
-            mode: '0755'
-          delegate_to: localhost
-
-        - name: Ensure local reports directory exists
-          ansible.builtin.file:
-            path: "{{ local_artifacts_dir }}/reports"
-            state: directory
-            mode: '0755'
-          delegate_to: localhost
-
-        - name: Ensure local logs directory exists
-          ansible.builtin.file:
-            path: "{{ local_artifacts_dir }}/logs"
-            state: directory
-            mode: '0755'
-          delegate_to: localhost
-
-        - name: Fetch results from remote to local
-          ansible.posix.synchronize:
-            src: "{{ workspace_root }}/results/"
-            dest: "{{ local_artifacts_dir }}/results/"
-            mode: pull
-            recursive: yes
-          delegate_to: localhost
-          register: fetch_results
+        - name: Check reports directory
+          ansible.builtin.find:
+            paths: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/reports"
+            file_type: file
+          register: reports_check
           failed_when: false
 
-        - name: Fetch reports from remote to local
-          ansible.posix.synchronize:
-            src: "{{ workspace_root }}/reports/"
-            dest: "{{ local_artifacts_dir }}/reports/"
-            mode: pull
-            recursive: yes
-          delegate_to: localhost
-          register: fetch_reports
-          failed_when: false
-
-        - name: Fetch logs from remote to local
-          ansible.posix.synchronize:
-            src: "{{ workspace_root }}/logs/"
-            dest: "{{ local_artifacts_dir }}/logs/"
-            mode: pull
-            recursive: yes
-          delegate_to: localhost
-          register: fetch_logs
-          failed_when: false
-
-        - name: Log remote artifact fetch summary
-          ansible.builtin.debug:
+        - name: Fail if no reports generated
+          ansible.builtin.fail:
             msg: |
-              Remote artifacts fetched to {{ local_artifacts_dir }}/:
-              - Results: {{ 'fetched' if fetch_results.changed else 'no changes' }}
-              - Reports: {{ 'fetched' if fetch_reports.changed else 'no changes' }}
-              - Logs: {{ 'fetched' if fetch_logs.changed else 'no changes' }}
+              {% if reports_check.failed | default(false) %}
+              Reports directory does not exist at {{ benchmark_source_dir }}/reports/
+              The benchmark script likely crashed before generating output.
+              {% else %}
+              Reports directory exists but is empty.
+              Test filter "{{ benchmark_filter | default('(none)') }}" may have matched zero tests.
+              {% endif %}
+
+              TROUBLESHOOTING:
+              1. Check Docker logs: docker logs $(docker ps -aq --filter name={{ client_name }} | head -1)
+              2. Check benchmark logs: cat {{ benchmark_workspace_root }}/{{ benchmark_logs_dir }}/{{ benchmark_run_timestamp }}/{{ client_name }}_run.log
+              3. Verify disk space: df -h {{ benchmark_workspace_root }}
+          when: (reports_check.matched | default(0)) == 0
+
+    # =========================================================================
+    # Post-Execution: Artifact Synchronization
+    # Syncs to timestamped directories: {results,reports,logs}/{{ timestamp }}/
+    # =========================================================================
+    - name: Ensure timestamped artifact directories exist
+      ansible.builtin.file:
+        path: "{{ benchmark_workspace_root }}/{{ item }}/{{ benchmark_run_timestamp }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - results
+        - reports
+      loop_control:
+        label: "{{ item }}/{{ benchmark_run_timestamp }}"
+
+    - name: Sync artifacts to timestamped directories
+      ansible.builtin.synchronize:
+        src: "{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/{{ item }}/"
+        dest: "{{ benchmark_workspace_root }}/{{ item }}/{{ benchmark_run_timestamp }}/"
+        mode: push
+        delete: no
+        recursive: yes
+      delegate_to: "{{ inventory_hostname }}"
+      register: sync_results
+      failed_when: false
+      loop:
+        - results
+        - reports
+      loop_control:
+        label: "{{ item }}/{{ benchmark_run_timestamp }}"
+
+    - name: Log artifact sync summary
+      ansible.builtin.debug:
+        msg: "Artifacts synced to {{ benchmark_run_timestamp }}/: {{ sync_results.results | selectattr('changed') | map(attribute='item') | list | join(', ') | default('none') }}"

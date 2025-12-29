@@ -3,18 +3,24 @@
 # Purpose: Default variables for benchmark execution
 
 # Path configuration (inherited from group_vars, can be overridden)
+benchmark_workspace_root: "/home/benchmark/gas-benchmarks-v2"
 benchmark_source_dir: "gas-benchmarks"
 benchmark_tests_root: "gas-benchmarks"
 
 # Run configuration
 benchmark_runs: 1
 benchmark_filter: ""
+benchmark_warmup_file: ""
 benchmark_restart_before_testing: false
 benchmark_skip_forkchoice: false
 benchmark_opcodes_warmup_count: 1
+benchmark_validate_reports: true
 
 # Network and snapshot configuration
 benchmark_network: ""
+
+# Overlay snapshot mode (disabled by default)
+benchmark_overlay_enabled: false
 benchmark_snapshot_root: ""
 
 # Image configuration
@@ -29,8 +35,15 @@ benchmark_images:
   nimbus: "default"
   ethrex: "default"
 
-# Directories
+# JWT configuration
+benchmark_jwt_path: "/tmp/jwtsecret"
+
+# Output directories
 benchmark_results_dir: "results"
+benchmark_logs_dir: "logs"
+
+# Run timestamp for log directory (passed from playbook, fallback to epoch)
+benchmark_run_timestamp: "{{ ansible_date_time.iso8601_basic_short | default(ansible_date_time.epoch) }}"
+# Note: warmup and preparation dirs are used by run.sh, not this role directly
 benchmark_warmup_results_dir: "warmupresults"
 benchmark_preparation_results_dir: "prepresults"
-benchmark_logs_dir: "logs"
