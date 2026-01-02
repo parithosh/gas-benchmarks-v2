@@ -2,7 +2,7 @@
 # Role: environment_setup
 # Purpose: Default variables for environment setup
 
-benchmark_workspace_root: "/home/benchmark/gas-benchmarks-v2"
+benchmark_workspace_root: "~/benchmark/gas-benchmarks-v2"
 benchmark_source_dir: "gas-benchmarks"
 benchmark_source_repo: "https://github.com/NethermindEth/gas-benchmarks.git"
 benchmark_source_branch: "main"

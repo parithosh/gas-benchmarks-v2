@@ -3,7 +3,7 @@
 # Purpose: Default variables for benchmark execution
 
 # Path configuration (inherited from group_vars, can be overridden)
-benchmark_workspace_root: "/home/benchmark/gas-benchmarks-v2"
+benchmark_workspace_root: "~/benchmark/gas-benchmarks-v2"
 benchmark_source_dir: "gas-benchmarks"
 benchmark_tests_root: "gas-benchmarks"
 

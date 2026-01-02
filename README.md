@@ -8,6 +8,7 @@ Ansible-orchestrated gas benchmark suite for Ethereum execution clients.
 # 1. Install dependencies
 make install
 source .venv/bin/activate
+ansible-galaxy collection install -r requirements.yml
 
 # 2. Initialize test submodule
 make init-submodule

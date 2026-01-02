@@ -39,7 +39,7 @@ all:
     # -------------------------------------------------------------------------
     # Workspace directory on target host where benchmarks will run
     # For remote hosts, this directory will be created if it doesn't exist
-    workspace_root: /home/benchmark/gas-benchmarks-v2
+    workspace_root: ~/benchmark/gas-benchmarks-v2
 
     # -------------------------------------------------------------------------
     # Optional Overrides
