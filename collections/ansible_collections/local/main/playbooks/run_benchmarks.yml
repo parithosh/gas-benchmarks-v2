@@ -29,27 +29,46 @@
       tags: ['always']
 
     # Phase 1: Environment Setup
+    # Using import_role so tags propagate to all tasks inside
     - name: Environment setup
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: environment_setup
       vars:
         benchmark_workspace_root: "{{ workspace_root }}"
       tags: ['setup']
 
     # Phase 2: Validation
+    # Using import_role so 'always' tag propagates to all tasks inside
     - name: Validate prerequisites
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: benchmark_validator
       vars:
         benchmark_workspace_root: "{{ workspace_root }}"
       tags: ['always']
 
+    # Phase 2.5: Fetch snapshots for stateful tests (optional)
+    - name: Fetch snapshots for stateful tests
+      ansible.builtin.include_tasks:
+        file: tasks/fetch_snapshot.yml
+        apply:
+          tags: ['setup', 'snapshots']
+      loop: "{{ _benchmark_clients_list }}"
+      loop_control:
+        loop_var: client_item
+      when:
+        - benchmark_stateful_enabled | default(false)
+        - benchmark_snapshot_network is defined and benchmark_snapshot_network != ''
+      tags: ['setup', 'snapshots', 'always']
+
     # Phase 3: Benchmark Execution (sequential, per client)
+    # Using include_role with apply because this uses a loop (import_role doesn't support loops)
     - name: Run benchmarks for each client
       block:
         - name: Execute benchmarks for client
           ansible.builtin.include_role:
             name: benchmark_runner
+            apply:
+              tags: ['benchmarks']
           vars:
             client_name: "{{ item }}"
             benchmark_workspace_root: "{{ workspace_root }}"
@@ -107,9 +126,12 @@
             msg: "Remote artifacts fetched to {{ local_artifacts_dir }}/: {{ fetch_results.results | selectattr('changed') | map(attribute='item') | list | join(', ') | default('none') }}"
 
     # Phase 4: PostgreSQL Ingestion (optional, tag-based)
+    # Using include_role with apply because of the runtime 'when' condition
     - name: Publish results to PostgreSQL
       ansible.builtin.include_role:
         name: postgres_publisher
+        apply:
+          tags: ['postgres']
       tags: ['postgres']
       when: postgres_host | default('') != ''
 
@@ -150,7 +172,7 @@
             fi
           args:
             executable: /bin/bash
-          when: benchmark_overlay_enabled | default(false)
+          when: benchmark_stateful_enabled | default(false)
           ignore_errors: yes
       always:
         - name: Ensure cleanup completion

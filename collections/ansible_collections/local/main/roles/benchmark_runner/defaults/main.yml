@@ -17,11 +17,14 @@ benchmark_opcodes_warmup_count: 1
 benchmark_validate_reports: true
 
 # Network and snapshot configuration
-benchmark_network: ""
+# benchmark_snapshot_network: Network name for snapshot fetching and -B flag paths
+# benchmark_run_network: Network name passed to run.sh -n flag (defaults to snapshot_network)
+benchmark_snapshot_network: ""
+benchmark_run_network: "{{ benchmark_snapshot_network }}"
 
-# Overlay snapshot mode (disabled by default)
-benchmark_overlay_enabled: false
-benchmark_snapshot_root: ""
+# Stateful tests with overlay snapshot mode (disabled by default)
+benchmark_stateful_enabled: false
+benchmark_snapshot_base: ""
 
 # Image configuration
 # "default" means use image from images.yaml, or specify custom image
@@ -47,3 +50,9 @@ benchmark_run_timestamp: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
 # Note: warmup and preparation dirs are used by run.sh, not this role directly
 benchmark_warmup_results_dir: "warmupresults"
 benchmark_preparation_results_dir: "prepresults"
+
+# Test paths with genesis files
+# Each entry needs 'path' and optionally 'genesis'
+benchmark_test_paths:
+  - path: "{{ benchmark_tests_root }}/eest_tests"
+    genesis: "zkevmgenesis.json"

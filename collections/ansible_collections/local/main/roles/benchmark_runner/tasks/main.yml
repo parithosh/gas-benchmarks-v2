@@ -100,10 +100,26 @@
     - name: Debug - show variables being used
       ansible.builtin.debug:
         msg:
-          - "benchmark_test_paths: {{ benchmark_test_paths | default('UNDEFINED') }}"
-          - "genesis: {{ benchmark_test_paths[0].genesis | default('UNDEFINED') }}"
-          - "filter: {{ benchmark_filter | default('UNDEFINED') }}"
-          - "Command will be: bash run.sh -t {{ benchmark_test_paths[0].path | default('') | regex_replace('^' + benchmark_tests_root + '/', '') }} {{ '-g ' + benchmark_test_paths[0].genesis if benchmark_test_paths[0].genesis is defined else '(no genesis)' }} -c {{ client_name }} -r {{ benchmark_runs }} {{ '-f ' + benchmark_filter if benchmark_filter is defined and benchmark_filter != '' else '(no filter)' }}"
+          - "Client: {{ client_name }}"
+          - "Test path: {{ benchmark_test_paths[0].path | default('UNDEFINED') }}"
+          - "Genesis: {{ benchmark_test_paths[0].genesis | default('(none)') }}"
+          - "Stateful mode: {{ 'enabled (snapshot_network: ' + benchmark_snapshot_network + ', run_network: ' + benchmark_run_network + ')' if (benchmark_stateful_enabled | default(false)) else 'disabled' }}"
+          - "Snapshot base: {{ benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '(n/a)' }}"
+          - "Filter: {{ benchmark_filter if (benchmark_filter is defined and benchmark_filter != '') else '(none)' }}"
+          - "Runs: {{ benchmark_runs }}"
+          - >-
+            Command: bash run.sh
+            -t {{ benchmark_test_paths[0].path | default('') | regex_replace('^' + benchmark_tests_root + '/', '') }}
+            {{ '-g ' + benchmark_test_paths[0].genesis if benchmark_test_paths[0].genesis is defined else '' }}
+            -c {{ client_name }}
+            -r {{ benchmark_runs }}
+            {{ '-w ' + benchmark_warmup_file if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }}
+            {{ '-f ' + benchmark_filter if (benchmark_filter is defined and benchmark_filter != '') else '' }}
+            {{ '-n ' + benchmark_run_network if (benchmark_run_network is defined and benchmark_run_network != '') else '' }}
+            {{ '-B ' + benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '' }}
+            {{ '-R' if benchmark_restart_before_testing | default(false) else '' }}
+            {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }}
+            {{ '-o ' + (benchmark_opcodes_warmup_count | string) if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count | int > 0) else '' }}
 
     - name: Build and execute benchmark command
       ansible.builtin.shell: |
@@ -135,8 +151,8 @@
           -r {{ benchmark_runs }} \
           {{ '-w "' + benchmark_warmup_file + '"' if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }} \
           {{ '-f "' + benchmark_filter + '"' if (benchmark_filter is defined and benchmark_filter != '') else '' }} \
-          {{ '-n "' + benchmark_network + '"' if (benchmark_network is defined and benchmark_network != '') else '' }} \
-          {{ '-B "' + benchmark_snapshot_root + '"' if (benchmark_overlay_enabled | default(false)) else '' }} \
+          {{ '-n "' + benchmark_run_network + '"' if (benchmark_run_network is defined and benchmark_run_network != '') else '' }} \
+          {{ '-B "' + benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name + '"' if (benchmark_stateful_enabled | default(false)) else '' }} \
           {{ '-R' if benchmark_restart_before_testing | default(false) else '' }} \
           {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }} \
           {{ '-o ' + (benchmark_opcodes_warmup_count | string) if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count | int > 0) else '' }} \
@@ -193,22 +209,33 @@
 
     # =========================================================================
     # Post-Execution: Log Collection
+    # run.sh already captures docker logs to gas-benchmarks/logs/
     # =========================================================================
-    - name: Collect Docker logs
+    - name: Move Docker logs and inspect from run.sh output
       ansible.builtin.shell: |
-        log_dir="{{ benchmark_workspace_root }}/{{ benchmark_logs_dir }}/{{ benchmark_run_timestamp }}/{{ client_name }}"
-        mkdir -p "$log_dir"
+        src_dir="{{ benchmark_workspace_root }}/{{ benchmark_source_dir }}/logs"
+        dest_dir="{{ benchmark_workspace_root }}/{{ benchmark_logs_dir }}/{{ benchmark_run_timestamp }}/{{ client_name }}"
+        mkdir -p "$dest_dir"
 
-        containers=$(docker ps -a --filter "name={{ client_name }}" --format "{% raw %}{{.Names}}{% endraw %}" 2>/dev/null || true)
-        count=0
-        for container in $containers; do
-          docker logs "$container" > "$log_dir/${container}.log" 2>&1 && count=$((count + 1))
-        done
-        echo "Collected $count container logs to $log_dir"
+        # Move docker container log
+        if [ -f "$src_dir/docker_{{ client_name }}.log" ]; then
+          mv "$src_dir/docker_{{ client_name }}.log" "$dest_dir/"
+          echo "Moved docker_{{ client_name }}.log"
+        else
+          echo "No docker log found"
+        fi
+
+        # Move docker container inspect JSON
+        if [ -f "$src_dir/docker_command_{{ client_name }}.json" ]; then
+          mv "$src_dir/docker_command_{{ client_name }}.json" "$dest_dir/"
+          echo "Moved docker_command_{{ client_name }}.json"
+        else
+          echo "No docker inspect found"
+        fi
       args:
         executable: /bin/bash
       register: log_collection
-      changed_when: false
+      changed_when: "'Moved' in log_collection.stdout"
       failed_when: false
 
     # =========================================================================

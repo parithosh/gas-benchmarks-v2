@@ -33,8 +33,10 @@ Note: All installations (dotnet, uv, Python dependencies, git-lfs, Makefile tool
 | `min_python_version` | `3.10` | Minimum Python version |
 | `min_dotnet_version` | `9.0` | Minimum dotnet SDK version |
 | `benchmark_warmup_file` | Empty | Optional warmup file path |
-| `benchmark_overlay_enabled` | `false` | Enable overlay snapshot mode |
-| `benchmark_snapshot_root` | `""` | Path to snapshot directory (required when overlay enabled) |
+| `benchmark_stateful_enabled` | `false` | Enable stateful tests with overlay snapshots |
+| `benchmark_snapshot_root` | `""` | Path to snapshot directory template (required when stateful enabled) |
+| `benchmark_snapshot_network` | `""` | Network name for snapshot fetching (required when stateful enabled) |
+| `benchmark_run_network` | `{{ benchmark_snapshot_network }}` | Network name passed to run.sh -n flag |
 
 ## Lock File Mechanism
 
@@ -49,7 +51,7 @@ The 2-hour threshold matches the benchmark async timeout. Lock files are cleaned
 ## Validations Performed
 
 1. **Lock file**: Check for concurrent execution
-2. **Overlay config**: Validate snapshot_root is set when overlay enabled
+2. **Stateful config**: Validate snapshot_root and network are set when stateful enabled
 3. **Docker**: Version >= 20.10, daemon running, Docker Hub connectivity
 4. **Docker Compose**: Version >= 2.0
 5. **Ports**: 8545 (JSON-RPC) and 8551 (Engine API) availability
@@ -63,6 +65,14 @@ The 2-hour threshold matches the benchmark async timeout. Lock files are cleaned
 13. **Docker Compose files**: scripts/{client}/docker-compose.yaml
 14. **Genesis files**: scripts/genesisfiles/{client}/{genesis}
 15. **Test paths**: All configured test directories exist
+
+### Stateful Test Validations (when `benchmark_stateful_enabled: true`)
+
+16. **Overlay kernel module**: Check overlay module is loaded (or load it)
+17. **Passwordless sudo**: Verify sudo access for mount operations
+18. **Drop caches access**: Verify sudo access to `/proc/sys/vm/drop_caches`
+19. **fuser command**: Check availability (optional, warns if missing)
+20. **Snapshot directories**: Verify snapshot paths exist for all clients
 
 ## Error Handling
 

@@ -33,8 +33,8 @@ Phase 1 role that prepares the execution environment before benchmarking.
 | `benchmark_logs_dir` | `logs` | Directory for execution logs |
 | `benchmark_warmup_results_dir` | `warmupresults` | Directory for warmup results |
 | `benchmark_preparation_results_dir` | `prepresults` | Directory for preparation results |
-| `benchmark_overlay_enabled` | `false` | Enable overlay snapshot mode |
-| `benchmark_snapshot_root` | `""` | Path to snapshot directory (required when overlay enabled) |
+| `benchmark_stateful_enabled` | `false` | Enable stateful tests with overlay snapshots |
+| `benchmark_snapshot_root` | `""` | Path to snapshot directory template (required when stateful enabled) |
 | `benchmark_overlay_tmp_root` | `overlay-runtime` | Temporary directory for overlay mounts |
 | `min_dotnet_version` | `9.0` | Minimum required dotnet SDK version |
 
@@ -49,11 +49,12 @@ Phase 1 role that prepares the execution environment before benchmarking.
 | **Python packages** | From gas-benchmarks/requirements.txt |
 | **Nethermind.Tools.Kute** | Built via `make prepare_tools` |
 
-## Overlay Mode
+## Stateful Test Mode
 
-When `benchmark_overlay_enabled: true`, the role cleans up stale overlay mounts from previous runs. This requires:
+When `benchmark_stateful_enabled: true`, the role cleans up stale overlay mounts from previous runs. This requires:
 
 - `benchmark_snapshot_root` to be set (validated by benchmark_validator role)
+- `benchmark_snapshot_network` to be set (validated by benchmark_validator role)
 - sudo access for unmounting filesystems
 
 ## Directory Structure Created
@@ -77,12 +78,14 @@ When `benchmark_overlay_enabled: true`, the role cleans up stale overlay mounts 
   vars:
     benchmark_workspace_root: "/opt/benchmarks"
 
-# With overlay mode
-- name: Setup environment with overlays
+# With stateful test mode
+- name: Setup environment with stateful tests
   ansible.builtin.include_role:
     name: environment_setup
   vars:
     benchmark_workspace_root: "/opt/benchmarks"
-    benchmark_overlay_enabled: true
-    benchmark_snapshot_root: "/mnt/snapshots/mainnet"
+    benchmark_stateful_enabled: true
+    benchmark_snapshot_root: "/data/snapshots/<<network>>/<<client>>"
+    benchmark_snapshot_network: "bloatnet"
+    # benchmark_run_network: "mainnet"  # Optional: use different network for run.sh -n flag
 ```

@@ -28,9 +28,9 @@ benchmark_clients:
 
 # Test paths with genesis files
 # Each entry needs 'path' and optionally 'genesis'
-benchmark_test_paths:
-  - path: "{{ benchmark_tests_root }}/eest_tests"
-    genesis: "zkevmgenesis.json"
+# benchmark_test_paths:
+#   - path: "{{ benchmark_tests_root }}/eest_tests"
+#     genesis: "zkevmgenesis.json"
 
 # Number of benchmark iterations per test
 benchmark_runs: 1
@@ -56,23 +56,50 @@ benchmark_skip_forkchoice: false
 # -----------------------------------------------------------------------------
 # "default" = use image from gas-benchmarks/images.yaml
 # Override with specific image URI: "ethpandaops/nethermind:1.25.0"
-benchmark_images:
-  nethermind: "default"
-  geth: "default"
-  reth: "default"
-  erigon: "default"
-  besu: "default"
-  nimbus: "default"
-  ethrex: "default"
+# benchmark_images:
+#   nethermind: "default"
+#   geth: "default"
+#   reth: "default"
+#   erigon: "default"
+#   besu: "default"
+#   nimbus: "default"
+#   ethrex: "default"
 
 # -----------------------------------------------------------------------------
-# Network and Snapshot Configuration (Advanced)
+# Stateful Tests Configuration (Advanced)
 # -----------------------------------------------------------------------------
-# Network name for stateful tests (empty = use genesis file)
-benchmark_network: ""
+# Enable stateful testing mode with overlay filesystem
+# When enabled, snapshots are fetched and mounted via overlay for tests
+# benchmark_stateful_enabled: false
 
-# Snapshot root for overlay testing (empty = disabled)
-benchmark_snapshot_root: ""
+# Network name for snapshot fetching and -B flag paths (required when stateful enabled)
+# Example: "bloatnet", "sepolia"
+# benchmark_snapshot_network: ""
+
+# Network name passed to run.sh -n flag (defaults to benchmark_snapshot_network)
+# Use this when the test network differs from the snapshot network
+# benchmark_run_network: ""
+
+# Base path for snapshots (network/client subdirs added automatically)
+# Example result: "/data/snapshots/bloatnet/nethermind"
+# benchmark_snapshot_base: "/data/snapshots"
+
+# Temporary directory for overlay mounts (relative to workspace)
+# benchmark_overlay_tmp_root: "overlay-runtime"
+
+# -----------------------------------------------------------------------------
+# Snapshot Fetcher Configuration (Advanced)
+# -----------------------------------------------------------------------------
+# Block number for snapshot fetching (empty = use latest from upstream)
+# Example: "22000000"
+# benchmark_snapshot_block: ""
+
+# S3/R2 credentials for snapshot access (required for private snapshots)
+# Set via environment variables or -e flags (never commit secrets!)
+# Environment variables: SNAPSHOT_S3_ENDPOINT, SNAPSHOT_S3_ACCESS_KEY_ID, SNAPSHOT_S3_SECRET_ACCESS_KEY
+# benchmark_snapshot_s3_endpoint: "{{ lookup('env', 'SNAPSHOT_S3_ENDPOINT') | default('') }}"
+# benchmark_snapshot_s3_access_key_id: "{{ lookup('env', 'SNAPSHOT_S3_ACCESS_KEY_ID') | default('') }}"
+# benchmark_snapshot_s3_secret_access_key: "{{ lookup('env', 'SNAPSHOT_S3_SECRET_ACCESS_KEY') | default('') }}"
 
 # -----------------------------------------------------------------------------
 # Output Directories
@@ -110,8 +137,8 @@ postgres_port: 5432
 # Environment Setup Configuration
 # -----------------------------------------------------------------------------
 # Git repository for gas-benchmarks submodule
-benchmark_source_repo: "https://github.com/NethermindEth/gas-benchmarks.git"
-benchmark_source_branch: "main"
+# benchmark_source_repo: "https://github.com/NethermindEth/gas-benchmarks.git"
+# benchmark_source_branch: "main"
 
 # Minimum dotnet SDK version required
 min_dotnet_version: "9.0"

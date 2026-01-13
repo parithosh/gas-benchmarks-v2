@@ -43,12 +43,57 @@
 # =============================================================================
 # Configuration Validation
 # =============================================================================
-- name: Validate overlay configuration
+- name: Validate stateful configuration
   ansible.builtin.fail:
-    msg: "benchmark_snapshot_root must be set when benchmark_overlay_enabled is true"
+    msg: "benchmark_snapshot_base must be set when benchmark_stateful_enabled is true"
   when:
-    - benchmark_overlay_enabled | default(false)
-    - benchmark_snapshot_root | default('') == ''
+    - benchmark_stateful_enabled | default(false)
+    - benchmark_snapshot_base | default('') == ''
+
+- name: Validate network is set for stateful tests
+  ansible.builtin.fail:
+    msg: "benchmark_snapshot_network must be set when benchmark_stateful_enabled is true"
+  when:
+    - benchmark_stateful_enabled | default(false)
+    - benchmark_snapshot_network | default('') == ''
+
+# =============================================================================
+# Stateful Test Prerequisites (only when benchmark_stateful_enabled is true)
+# =============================================================================
+- name: Check overlay kernel module is loaded
+  ansible.builtin.shell: lsmod | grep -q '^overlay ' || modprobe overlay
+  become: true
+  when: benchmark_stateful_enabled | default(false)
+  register: overlay_module_check
+  failed_when: overlay_module_check.rc != 0
+
+- name: Verify passwordless sudo for mount operations
+  ansible.builtin.command: sudo -n mount --version
+  changed_when: false
+  when: benchmark_stateful_enabled | default(false)
+  register: sudo_mount_check
+  failed_when: sudo_mount_check.rc != 0
+
+- name: Verify sudo access for dropping caches
+  ansible.builtin.shell: sudo -n sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+  changed_when: false
+  when: benchmark_stateful_enabled | default(false)
+  register: sudo_cache_check
+  failed_when: sudo_cache_check.rc != 0
+
+- name: Check fuser command availability (optional)
+  ansible.builtin.command: which fuser
+  changed_when: false
+  when: benchmark_stateful_enabled | default(false)
+  register: fuser_check
+  failed_when: false
+
+- name: Warn if fuser is not available
+  ansible.builtin.debug:
+    msg: "fuser command not found - stale mount cleanup may be less reliable"
+  when:
+    - benchmark_stateful_enabled | default(false)
+    - fuser_check.rc | default(0) != 0
 
 # Normalize benchmark_clients early (handles string vs list from CLI)
 - name: Normalize benchmark_clients to list
@@ -260,6 +305,24 @@
     label: "{{ item.item.0 | default('') }} -> {{ item.item.1.genesis | default('') }}"
 
 # =============================================================================
+# Snapshot Directory Validation (only when stateful enabled)
+# =============================================================================
+- name: Resolve and validate snapshot paths exist
+  block:
+    - name: Check snapshot directory for each client
+      ansible.builtin.stat:
+        path: "{{ benchmark_snapshot_base }}/{{ benchmark_snapshot_network }}/{{ item }}"
+      loop: "{{ benchmark_clients_normalized }}"
+      register: snapshot_checks
+
+    - name: Fail if any snapshot directory missing
+      ansible.builtin.fail:
+        msg: "Snapshot directory not found for {{ item.item }}: {{ item.invocation.module_args.path }}"
+      loop: "{{ snapshot_checks.results }}"
+      when: not item.stat.exists | default(false)
+  when: benchmark_stateful_enabled | default(false)
+
+# =============================================================================
 # Validation Summary
 # =============================================================================
 - name: Log validation summary
@@ -268,6 +331,7 @@
       - "✓ All prerequisites validated successfully"
       - "  Clients: {{ benchmark_clients_normalized | join(', ') }}"
       - "  Test paths: {{ benchmark_test_paths | map(attribute='path') | join(', ') }}"
+      - "{{ '  Stateful mode: enabled (snapshot_network: ' + benchmark_snapshot_network + ', run_network: ' + benchmark_run_network + ')' if benchmark_stateful_enabled | default(false) else '  Stateful mode: disabled' }}"
 
 - name: Register validation results
   ansible.builtin.set_fact:
@@ -278,3 +342,4 @@
       dotnet_version: "{{ dotnet_version }}"
       clients_validated: "{{ benchmark_clients_normalized }}"
       test_paths_validated: "{{ benchmark_test_paths | map(attribute='path') | list }}"
+      stateful_enabled: "{{ benchmark_stateful_enabled | default(false) }}"

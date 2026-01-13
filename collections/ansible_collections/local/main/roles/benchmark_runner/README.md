@@ -31,9 +31,10 @@ Note: Remote artifact fetching is handled at the playbook level after all client
 | `benchmark_runs` | `1` | Number of benchmark iterations |
 | `benchmark_filter` | Empty | Test name pattern filter |
 | `benchmark_warmup_file` | Empty | Warmup file path |
-| `benchmark_network` | Empty | Network configuration |
-| `benchmark_overlay_enabled` | `false` | Enable overlay snapshot mode |
-| `benchmark_snapshot_root` | Empty | Snapshot directory for overlay testing |
+| `benchmark_snapshot_network` | Empty | Network name for snapshot fetching and -B flag paths |
+| `benchmark_run_network` | `{{ benchmark_snapshot_network }}` | Network name passed to run.sh -n flag |
+| `benchmark_stateful_enabled` | `false` | Enable stateful tests with overlay snapshots |
+| `benchmark_snapshot_root` | Empty | Snapshot directory template for stateful testing |
 | `benchmark_restart_before_testing` | `false` | Restart client before each test |
 | `benchmark_skip_forkchoice` | `false` | Skip forkchoice updates |
 | `benchmark_opcodes_warmup_count` | `1` | Opcode warmup iterations |

@@ -6,8 +6,12 @@ collections:
   - name: ansible.posix
     version: ">=1.5.0"
   - name: community.general
-    version: ">=8.0.0"
+    version: ">=6.0.0,<7.0.0"
+  - name: ethpandaops.general
+    source: https://github.com/ethpandaops/ansible-collection-general.git,master
+    type: git
 
 # Required collections:
 # - ansible.posix: For synchronize module (used in benchmark_runner)
 # - community.general: For homebrew module (macOS package installation)
+# - ethpandaops.general: For snapshot_fetcher role (stateful tests)

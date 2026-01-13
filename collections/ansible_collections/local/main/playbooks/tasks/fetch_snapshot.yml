@@ -1,0 +1,21 @@
+---
+# Task file for fetching a single client snapshot
+# Called with: client_item variable
+
+- name: Check if snapshot already exists for {{ client_item }}
+  ansible.builtin.stat:
+    path: "{{ benchmark_snapshot_base }}/{{ benchmark_snapshot_network }}/{{ client_item }}"
+  register: snapshot_exists
+
+- name: Fetch snapshot for {{ client_item }}
+  ansible.builtin.include_role:
+    name: ethpandaops.general.snapshot_fetcher
+  vars:
+    snapshot_fetcher_network: "{{ benchmark_snapshot_network }}"
+    snapshot_fetcher_client: "{{ client_item }}"
+    snapshot_fetcher_out_dir: "{{ benchmark_snapshot_base }}/{{ benchmark_snapshot_network }}/{{ client_item }}"
+    snapshot_fetcher_block: "{{ benchmark_snapshot_block | default(omit) }}"
+    snapshot_fetcher_s3_endpoint: "{{ benchmark_snapshot_s3_endpoint | default(omit) }}"
+    snapshot_fetcher_s3_access_key_id: "{{ benchmark_snapshot_s3_access_key_id | default(omit) }}"
+    snapshot_fetcher_s3_secret_access_key: "{{ benchmark_snapshot_s3_secret_access_key | default(omit) }}"
+  when: not snapshot_exists.stat.exists | default(false)

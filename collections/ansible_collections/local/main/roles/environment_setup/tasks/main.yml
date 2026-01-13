@@ -11,6 +11,8 @@
     path: "{{ benchmark_workspace_root }}"
     state: directory
     mode: '0755'
+    owner: "{{ ansible_user | default(ansible_user_id) }}"
+    group: "{{ ansible_user | default(ansible_user_id) }}"
   become: yes
 
 - name: Install rsync (required for artifact synchronization)
@@ -18,6 +20,27 @@
     name: rsync
     state: present
   become: yes
+
+- name: Install make (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: make
+    state: present
+    update_cache: yes
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install make (RedHat/CentOS)
+  ansible.builtin.yum:
+    name: make
+    state: present
+  become: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Install make (macOS)
+  community.general.homebrew:
+    name: make
+    state: present
+  when: ansible_os_family == "Darwin"
 
 - name: Clone or update gas-benchmarks repository
   ansible.builtin.git:
@@ -329,7 +352,7 @@
     - "{{ benchmark_logs_dir }}"
     - "{{ benchmark_preparation_results_dir }}"
 
-- name: Clean up stale overlay mounts (if using overlays)
+- name: Clean up stale overlay mounts (if using stateful tests)
   ansible.builtin.shell: |
     set -e
 
@@ -355,7 +378,7 @@
     echo "Overlay cleanup completed"
   args:
     executable: /bin/bash
-  when: benchmark_overlay_enabled | default(false)
+  when: benchmark_stateful_enabled | default(false)
   register: overlay_cleanup_result
   changed_when: "'Unmounting' in overlay_cleanup_result.stdout"
   failed_when: false

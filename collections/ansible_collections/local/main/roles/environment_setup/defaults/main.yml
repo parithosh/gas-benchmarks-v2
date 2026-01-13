@@ -14,9 +14,9 @@ benchmark_logs_dir: "logs"
 benchmark_preparation_results_dir: "prepresults"
 benchmark_overlay_tmp_root: "overlay-runtime"
 
-# Overlay snapshot mode (disabled by default)
-benchmark_overlay_enabled: false
-benchmark_snapshot_root: ""
+# Stateful tests with overlay snapshot mode (disabled by default)
+benchmark_stateful_enabled: false
+benchmark_snapshot_base: ""
 
 # Minimum required versions for installed tools
 min_dotnet_version: "9.0"
