@@ -103,8 +103,8 @@
           - "Client: {{ client_name }}"
           - "Test path: {{ benchmark_test_paths[0].path | default('UNDEFINED') }}"
           - "Genesis: {{ benchmark_test_paths[0].genesis | default('(none)') }}"
-          - "Stateful mode: {{ 'enabled (snapshot_network: ' + benchmark_snapshot_network + ', run_network: ' + benchmark_run_network + ')' if (benchmark_stateful_enabled | default(false)) else 'disabled' }}"
-          - "Snapshot base: {{ benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '(n/a)' }}"
+          - "Stateful mode: {{ 'enabled (snapshot_network: ' + (benchmark_snapshot_network | default('none')) + ', run_network: ' + (benchmark_run_network | default('none')) + ')' if (benchmark_stateful_enabled | default(false)) else 'disabled' }}"
+          - "Snapshot base: {{ benchmark_snapshot_base + '/' + (benchmark_snapshot_network | default('')) + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '(n/a)' }}"
           - "Filter: {{ benchmark_filter if (benchmark_filter is defined and benchmark_filter != '') else '(none)' }}"
           - "Runs: {{ benchmark_runs }}"
           - >-
@@ -116,7 +116,7 @@
             {{ '-w ' + benchmark_warmup_file if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }}
             {{ '-f ' + benchmark_filter if (benchmark_filter is defined and benchmark_filter != '') else '' }}
             {{ '-n ' + benchmark_run_network if (benchmark_run_network is defined and benchmark_run_network != '') else '' }}
-            {{ '-B ' + benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '' }}
+            {{ '-B ' + benchmark_snapshot_base + '/' + (benchmark_snapshot_network | default('')) + '/' + client_name if (benchmark_stateful_enabled | default(false)) else '' }}
             {{ '-R' if benchmark_restart_before_testing | default(false) else '' }}
             {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }}
             {{ '-o ' + (benchmark_opcodes_warmup_count | string) if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count | int > 0) else '' }}
@@ -152,7 +152,7 @@
           {{ '-w "' + benchmark_warmup_file + '"' if (benchmark_warmup_file is defined and benchmark_warmup_file != '') else '' }} \
           {{ '-f "' + benchmark_filter + '"' if (benchmark_filter is defined and benchmark_filter != '') else '' }} \
           {{ '-n "' + benchmark_run_network + '"' if (benchmark_run_network is defined and benchmark_run_network != '') else '' }} \
-          {{ '-B "' + benchmark_snapshot_base + '/' + benchmark_snapshot_network + '/' + client_name + '"' if (benchmark_stateful_enabled | default(false)) else '' }} \
+          {{ '-B "' + benchmark_snapshot_base + '/' + (benchmark_snapshot_network | default('')) + '/' + client_name + '"' if (benchmark_stateful_enabled | default(false)) else '' }} \
           {{ '-R' if benchmark_restart_before_testing | default(false) else '' }} \
           {{ '-F' if benchmark_skip_forkchoice | default(false) else '' }} \
           {{ '-o ' + (benchmark_opcodes_warmup_count | string) if (benchmark_opcodes_warmup_count is defined and benchmark_opcodes_warmup_count | int > 0) else '' }} \

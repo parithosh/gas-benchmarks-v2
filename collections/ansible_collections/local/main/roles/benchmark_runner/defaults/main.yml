@@ -18,9 +18,9 @@ benchmark_validate_reports: true
 
 # Network and snapshot configuration
 # benchmark_snapshot_network: Network name for snapshot fetching and -B flag paths
-# benchmark_run_network: Network name passed to run.sh -n flag (defaults to snapshot_network)
+# benchmark_run_network: Network name passed to run.sh -n flag (defaults to snapshot_network if set)
 benchmark_snapshot_network: ""
-benchmark_run_network: "{{ benchmark_snapshot_network }}"
+benchmark_run_network: ""
 
 # Stateful tests with overlay snapshot mode (disabled by default)
 benchmark_stateful_enabled: false

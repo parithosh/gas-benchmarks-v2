@@ -115,6 +115,7 @@
     - { name: "python", cmd: "python3 --version", min: "3.10", regex: '([0-9]+\.[0-9]+)' }
     - { name: "jq", cmd: "jq --version", min: null, regex: null }
     - { name: "yq", cmd: "yq --version", min: null, regex: null }
+    - { name: "zip", cmd: "zip --version", min: null, regex: null }
     - { name: "dotnet", cmd: "dotnet --version", min: "{{ min_dotnet_version }}", regex: '([0-9]+\.[0-9]+)' }
   loop_control:
     label: "{{ item.name }}"
@@ -331,7 +332,7 @@
       - "✓ All prerequisites validated successfully"
       - "  Clients: {{ benchmark_clients_normalized | join(', ') }}"
       - "  Test paths: {{ benchmark_test_paths | map(attribute='path') | join(', ') }}"
-      - "{{ '  Stateful mode: enabled (snapshot_network: ' + benchmark_snapshot_network + ', run_network: ' + benchmark_run_network + ')' if benchmark_stateful_enabled | default(false) else '  Stateful mode: disabled' }}"
+      - "{{ '  Stateful mode: enabled (snapshot_network: ' + (benchmark_snapshot_network | default('none')) + ', run_network: ' + (benchmark_run_network | default('none')) + ')' if benchmark_stateful_enabled | default(false) else '  Stateful mode: disabled' }}"
 
 - name: Register validation results
   ansible.builtin.set_fact:
