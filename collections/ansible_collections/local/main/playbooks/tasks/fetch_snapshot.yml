@@ -18,4 +18,6 @@
     snapshot_fetcher_s3_endpoint: "{{ benchmark_snapshot_s3_endpoint | default(omit) }}"
     snapshot_fetcher_s3_access_key_id: "{{ benchmark_snapshot_s3_access_key_id | default(omit) }}"
     snapshot_fetcher_s3_secret_access_key: "{{ benchmark_snapshot_s3_secret_access_key | default(omit) }}"
+    snapshot_fetcher_s3_provider: "{{ benchmark_snapshot_fetcher_s3_provider | default(omit) }}"
+    snapshot_fetcher_s3_bucket: "{{ benchmark_snapshot_fetcher_s3_bucket | default(omit) }}"
   when: not snapshot_exists.stat.exists | default(false)
