@@ -37,15 +37,6 @@
         benchmark_workspace_root: "{{ workspace_root }}"
       tags: ['setup']
 
-    # Phase 2: Validation
-    # Using import_role so 'always' tag propagates to all tasks inside
-    - name: Validate prerequisites
-      ansible.builtin.import_role:
-        name: benchmark_validator
-      vars:
-        benchmark_workspace_root: "{{ workspace_root }}"
-      tags: ['always']
-
     # Phase 2.5: Fetch snapshots for stateful tests (optional)
     - name: Fetch snapshots for stateful tests
       ansible.builtin.include_tasks:
@@ -59,6 +50,16 @@
         - benchmark_stateful_enabled | default(false)
         - benchmark_snapshot_network is defined and benchmark_snapshot_network != ''
       tags: ['setup', 'snapshots', 'always']
+
+    # Phase 2: Validation
+    # Using import_role so 'always' tag propagates to all tasks inside
+    - name: Validate prerequisites
+      ansible.builtin.import_role:
+        name: benchmark_validator
+      vars:
+        benchmark_workspace_root: "{{ workspace_root }}"
+      tags: ['always']
+
 
     # Phase 3: Benchmark Execution (sequential, per client)
     # Using include_role with apply because this uses a loop (import_role doesn't support loops)
