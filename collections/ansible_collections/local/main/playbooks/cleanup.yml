@@ -139,9 +139,7 @@
         - results
         - reports
         - logs
-        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/results"
-        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/reports"
-        - "{{ benchmark_source_dir | default('gas-benchmarks') }}/logs"
+        - "{{ benchmark_source_dir | default('gas-benchmarks') }}"
 
     # ==========================================================================
     # Summary
